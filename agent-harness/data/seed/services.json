@@ -1,0 +1,42 @@
+[
+  {
+    "name": "auth-service",
+    "status": "operational",
+    "latency_ms": 48.0,
+    "error_rate": 0.001,
+    "last_deploy": "2026-09-18T09:12:00Z",
+    "owner": "platform-auth"
+  },
+  {
+    "name": "payments-api",
+    "status": "degraded",
+    "latency_ms": 812.0,
+    "error_rate": 0.041,
+    "last_deploy": "2026-09-24T14:05:00Z",
+    "owner": "payments-platform"
+  },
+  {
+    "name": "search-index",
+    "status": "down",
+    "latency_ms": 0.0,
+    "error_rate": 1.0,
+    "last_deploy": "2026-09-27T02:30:00Z",
+    "owner": "search-platform"
+  },
+  {
+    "name": "notifications-service",
+    "status": "operational",
+    "latency_ms": 110.0,
+    "error_rate": 0.003,
+    "last_deploy": "2026-09-20T11:40:00Z",
+    "owner": "growth-eng"
+  },
+  {
+    "name": "billing-service",
+    "status": "operational",
+    "latency_ms": 95.0,
+    "error_rate": 0.0008,
+    "last_deploy": "2026-09-15T08:00:00Z",
+    "owner": "payments-platform"
+  }
+]

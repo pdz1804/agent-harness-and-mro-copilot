@@ -1,0 +1,35 @@
+{
+  "model_id": "hist_gradient_boosting",
+  "seed": 42,
+  "trained_at": "2026-09-29T08:31:15.994808+00:00",
+  "threshold": 0.9405,
+  "threshold_status": "both_constraints_met",
+  "target": {
+    "min_recall": 0.8,
+    "max_alerts_per_100": 5.0
+  },
+  "val_metrics": {
+    "n_rows": 5083,
+    "n_positive": 106,
+    "roc_auc": 0.9985916347272928,
+    "pr_auc": 0.9681713400548697
+  },
+  "test_metrics": {
+    "n_rows": 2515,
+    "n_positive": 28,
+    "roc_auc": 0.9995979091274628,
+    "pr_auc": 0.9732694046690771
+  },
+  "test_at_threshold": {
+    "threshold": 0.9405,
+    "tp": 23,
+    "fp": 0,
+    "fn": 5,
+    "tn": 2487,
+    "recall": 0.8214285714285714,
+    "precision": 1.0,
+    "alerts_per_100": 0.9145129224652088,
+    "n_alerts": 23,
+    "n_rows": 2515
+  }
+}

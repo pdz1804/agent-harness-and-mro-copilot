@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+runs/*.jsonl
+!runs/.gitkeep
+.env
+data/harness.db
+data/harness.db-journal
+data/harness.db-wal
+data/harness.db-shm
+# Regenerated on first hybrid-retrieval run (sha256(chunk text) -> embedding
+# vector) — see agent_harness.dense_embeddings. Not source, safe to rebuild.
+data/kb_cache/
+*.log

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-harness"
+version = "0.1.0"
+description = "LLM-tool execution harness for an ops assistant (STEMS VN AI Engineer take-home test)"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0,<3.0",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "openai>=1.40",
+    "rank-bm25>=0.2.2",
+    "python-dotenv>=1.0",
+    "numpy>=1.24",
+    "sentence-transformers>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "httpx>=0.24",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -m \"not live\""
+markers = [
+    "live: opt-in test that makes a real OpenAI API call (requires OPENAI_API_KEY; run with `pytest -m live`, skipped otherwise).",
+]

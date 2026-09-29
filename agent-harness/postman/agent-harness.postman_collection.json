@@ -1,0 +1,109 @@
+{
+  "info": {
+    "name": "Agent Harness API",
+    "description": "Requests against the Agent Harness FastAPI wrapper (`uvicorn api:app --reload`). Uses the {{baseUrl}} collection variable, default http://127.0.0.1:8000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Happy path - service status lookup",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"objective\": \"What is the status of auth-service?\",\n  \"max_steps\": 5\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/run",
+          "host": ["{{baseUrl}}"],
+          "path": ["run"]
+        },
+        "description": "Runs the harness with an objective that never triggers an approval-gated tool. Expect status=\"completed\" with a search_knowledge_base or get_service_status call and a final_answer."
+      },
+      "response": []
+    },
+    {
+      "name": "Approval-required - incident denied (default)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"objective\": \"search-index is down, please create an incident\",\n  \"max_steps\": 6\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/run",
+          "host": ["{{baseUrl}}"],
+          "path": ["run"]
+        },
+        "description": "auto_approve defaults to false, so the create_incident call is denied. Expect an \"approval_denied\" event in history and no tool_call_result for create_incident."
+      },
+      "response": []
+    },
+    {
+      "name": "Approval-required - incident auto-approved",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"objective\": \"search-index is down, please create an incident\",\n  \"auto_approve\": true,\n  \"max_steps\": 6\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/run",
+          "host": ["{{baseUrl}}"],
+          "path": ["run"]
+        },
+        "description": "auto_approve=true pre-authorizes the approval-gated create_incident call for this run. Expect \"approval_granted\" and a tool_call_result with status=\"created\"."
+      },
+      "response": []
+    },
+    {
+      "name": "Validation error - blank objective",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"objective\": \"   \"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/run",
+          "host": ["{{baseUrl}}"],
+          "path": ["run"]
+        },
+        "description": "Expect HTTP 422; objective must be non-blank."
+      },
+      "response": []
+    }
+  ]
+}

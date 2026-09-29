@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* Ops-console theme: dark, single accent (sky blue). Status semantics
+   (emerald/amber/rose/slate) are applied per-component, not here. System
+   font stack only — no webfont network dependency, so the console renders
+   identically for reviewers running it offline. */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #09090b; /* zinc-950 */
+  color: #f4f4f5; /* zinc-100 */
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre,
+.font-data {
+  font-family: ui-monospace, Consolas, 'SFMono-Regular', monospace;
+}
+
+* {
+  scrollbar-color: #3f3f46 transparent;
+}

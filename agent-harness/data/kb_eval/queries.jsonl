@@ -1,0 +1,37 @@
+{"query": "users are getting logged out, investigate auth-service", "relevant_doc_ids": ["kb-002-auth-service-outage-checklist"]}
+{"query": "customers can't log in and sessions keep dropping", "relevant_doc_ids": ["kb-002-auth-service-outage-checklist"]}
+{"query": "login tokens failing, redis connection pool maxed out", "relevant_doc_ids": ["kb-002-auth-service-outage-checklist"]}
+{"query": "checkout is slow and card payments are taking forever", "relevant_doc_ids": ["kb-001-payments-api-degraded-latency"]}
+{"query": "payments-api p95 latency spiked, webhook queue growing", "relevant_doc_ids": ["kb-001-payments-api-degraded-latency"]}
+{"query": "site search results are completely empty for every query", "relevant_doc_ids": ["kb-003-search-index-rebuild-procedure"]}
+{"query": "nightly search index build job failed overnight", "relevant_doc_ids": ["kb-003-search-index-rebuild-procedure"]}
+{"query": "when are we actually allowed to file an incident ticket", "relevant_doc_ids": ["kb-004-incident-creation-policy"]}
+{"query": "policy for escalating a degraded service to a formal incident", "relevant_doc_ids": ["kb-004-incident-creation-policy"]}
+{"query": "service broke right after we shipped a release this morning", "relevant_doc_ids": ["kb-005-deploy-rollback-procedure"]}
+{"query": "should we roll back the latest deployment or push a hotfix", "relevant_doc_ids": ["kb-005-deploy-rollback-procedure"]}
+{"query": "lots of request timeouts even though the database server looks healthy", "relevant_doc_ids": ["kb-006-database-connection-pool-exhaustion"]}
+{"query": "postgres connections maxed out, p99 climbing fast", "relevant_doc_ids": ["kb-006-database-connection-pool-exhaustion"]}
+{"query": "sudden flood of traffic hitting the origin database after a bulk write", "relevant_doc_ids": ["kb-007-cache-invalidation-storm"]}
+{"query": "cache hit rate collapsed right after a migration ran", "relevant_doc_ids": ["kb-007-cache-invalidation-storm"]}
+{"query": "clients are getting a wave of too many requests errors", "relevant_doc_ids": ["kb-008-rate-limiting-and-429-spikes"]}
+{"query": "one api key is generating almost all of the 429 responses", "relevant_doc_ids": ["kb-008-rate-limiting-and-429-spikes"]}
+{"query": "external users can't connect at all but our dashboards say everything is fine", "relevant_doc_ids": ["kb-009-tls-certificate-expiry"]}
+{"query": "ssl handshake failing for every external customer request", "relevant_doc_ids": ["kb-009-tls-certificate-expiry"]}
+{"query": "our service can't resolve a hostname for an upstream dependency intermittently", "relevant_doc_ids": ["kb-010-dns-resolution-failures"]}
+{"query": "name resolution is flaky and it looks like the dependency is down but isn't", "relevant_doc_ids": ["kb-010-dns-resolution-failures"]}
+{"query": "the background worker queue keeps growing even though nothing looks broken yet", "relevant_doc_ids": ["kb-011-message-queue-backlog"]}
+{"query": "consumers are falling behind producers and the backlog is climbing", "relevant_doc_ids": ["kb-011-message-queue-backlog"]}
+{"query": "a kubernetes pod keeps restarting over and over", "relevant_doc_ids": ["kb-012-kubernetes-pod-crashloop"]}
+{"query": "container stuck crash looping after a config change", "relevant_doc_ids": ["kb-012-kubernetes-pod-crashloop"]}
+{"query": "getting bad gateway errors from the load balancer for every request", "relevant_doc_ids": ["kb-013-load-balancer-502-503-errors"]}
+{"query": "backends are unreachable behind the shared load balancer, seeing 502s and 503s", "relevant_doc_ids": ["kb-013-load-balancer-502-503-errors"]}
+{"query": "a service suddenly can't authenticate to a downstream dependency, no deploy happened", "relevant_doc_ids": ["kb-014-secrets-rotation-breakage"]}
+{"query": "credentials stopped working after a rotation event, no code change involved", "relevant_doc_ids": ["kb-014-secrets-rotation-breakage"]}
+{"query": "cloud bill spiked unexpectedly this week, what's driving the cost anomaly", "relevant_doc_ids": ["kb-015-cost-anomaly-alert"]}
+{"query": "autoscaler seems stuck and compute spend is way up", "relevant_doc_ids": ["kb-015-cost-anomaly-alert"]}
+{"query": "not sure our last database backup can actually be restored", "relevant_doc_ids": ["kb-016-backup-restore-verification"]}
+{"query": "scheduled backup job failed, how urgent is this really", "relevant_doc_ids": ["kb-016-backup-restore-verification"]}
+{"query": "regression started right after we changed a feature flag rollout percentage", "relevant_doc_ids": ["kb-017-feature-flag-rollback"]}
+{"query": "should we flip off the new feature flag instead of shipping a code fix", "relevant_doc_ids": ["kb-017-feature-flag-rollback"]}
+{"query": "what sections need to be in the writeup after a critical incident closes", "relevant_doc_ids": ["kb-018-postmortem-template"]}
+{"query": "postmortem is due for a high severity incident, what format do we use", "relevant_doc_ids": ["kb-018-postmortem-template"]}

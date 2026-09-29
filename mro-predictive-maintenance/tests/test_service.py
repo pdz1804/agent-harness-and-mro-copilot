@@ -1,0 +1,136 @@
+"""Tests for the src/service/ FastAPI scoring service.
+
+Exercises the real trained artifacts already committed under models/ and
+reports/ (no mocking of the model or its outputs) -- these tests require
+`python -m src.pipeline` to have been run at least once so
+`reports/model_card.json` and `models/logistic_regression.joblib` exist,
+which is true in this repo and enforced by CI running the pipeline first.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from src import config  # noqa: E402
+from src.modeling import ALL_FEATURES, predict_scores  # noqa: E402
+from src.service.app import app  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def client():
+    if not config.MODEL_CARD_JSON.exists():
+        pytest.skip("reports/model_card.json missing -- run `python -m src.pipeline` first")
+    with TestClient(app) as c:
+        yield c
+
+
+def test_health_reports_model_loaded(client):
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["model_loaded"] is True
+    assert body["model_id"] == config.PRIMARY_MODEL_ID
+
+
+def test_model_card_matches_disk_artifact(client):
+    resp = client.get("/model-card")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["model_id"] == config.PRIMARY_MODEL_ID
+    assert 0.0 <= body["threshold"] <= 1.0
+    assert set(body["numeric_features"] + body["categorical_features"]) == set(ALL_FEATURES)
+    assert body["threshold_status"] in {
+        "both_constraints_met", "alert_rate_met_recall_shortfall", "neither_constraint_met",
+    }
+
+
+def _sample_fleet_item(client, n: int = 5) -> dict:
+    resp = client.get(f"/fleet/top-risk?n={n}")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) >= 1
+    return items[0]
+
+
+def test_fleet_top_risk_is_ranked_and_alert_consistent_with_threshold(client):
+    resp = client.get("/fleet/top-risk?n=15")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["model_id"] == config.PRIMARY_MODEL_ID
+    items = body["items"]
+    assert len(items) == min(15, body["n_scored"])
+
+    scores = [it["risk_score"] for it in items]
+    assert scores == sorted(scores, reverse=True)
+
+    for it in items:
+        assert 0.0 <= it["risk_score"] <= 1.0
+        assert it["alert"] == (it["risk_score"] >= body["threshold"])
+        assert set(it["features"].keys()) == set(ALL_FEATURES)
+
+
+def test_fleet_top_risk_rejects_non_positive_n(client):
+    resp = client.get("/fleet/top-risk?n=0")
+    assert resp.status_code == 422
+
+
+def test_score_valid_payload_returns_probability_and_shap_factors(client):
+    item = _sample_fleet_item(client)
+    payload = dict(item["features"])
+    payload["component_id"] = item["component_id"]
+
+    resp = client.post("/score", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert 0.0 <= body["risk_score"] <= 1.0
+    assert body["alert"] == (body["risk_score"] >= body["threshold"])
+    assert body["explanation_method"] == "shap"
+    assert 1 <= len(body["top_factors"]) <= 5
+    for factor in body["top_factors"]:
+        assert isinstance(factor["feature"], str)
+        assert isinstance(factor["shap_value"], float)
+
+
+def test_score_missing_categorical_field_is_422(client):
+    resp = client.post("/score", json={"aircraft_type": "ATR72"})
+    assert resp.status_code == 422
+
+
+def test_score_rejects_unknown_field(client):
+    item = _sample_fleet_item(client)
+    payload = dict(item["features"])
+    payload["not_a_real_feature"] = 1.0
+    resp = client.post("/score", json=payload)
+    assert resp.status_code == 422
+
+
+def test_score_parity_with_offline_pipeline(client):
+    """The service's score for a fleet row must equal the offline pipeline's
+    predict_proba for the exact same feature row -- same fitted pipeline,
+    same feature order, no drift between training-time and serving-time
+    scoring logic.
+    """
+    item = _sample_fleet_item(client)
+    payload = dict(item["features"])
+
+    resp = client.post("/score", json=payload)
+    assert resp.status_code == 200
+    service_score = resp.json()["risk_score"]
+
+    import pandas as pd
+
+    offline_pipeline = __import__("joblib").load(
+        config.MODELS_DIR / f"{config.PRIMARY_MODEL_ID}.joblib"
+    )
+    row_df = pd.DataFrame([{f: payload.get(f) for f in ALL_FEATURES}])
+    offline_score = float(predict_scores(offline_pipeline, row_df)[0])
+
+    assert service_score == pytest.approx(offline_score, abs=1e-9)
