@@ -46,6 +46,9 @@ interface ComposerProps {
   running?: boolean
   onStop?: () => void
   stopping?: boolean
+  /** Clear the text on submit (default). New run passes false and keeps the
+   * message until the run has started, so a failed start never loses it. */
+  clearOnSubmit?: boolean
 }
 
 /** Shared chat composer (New run + continuing a session): a `/`-triggered
@@ -66,6 +69,7 @@ export function Composer({
   running = false,
   onStop,
   stopping = false,
+  clearOnSubmit = true,
 }: ComposerProps) {
   const [internalText, setInternalText] = useState('')
   const text = value ?? internalText
@@ -101,7 +105,7 @@ export function Composer({
   const submit = () => {
     if (!canSubmit) return
     onSubmit(trimmed)
-    setText('')
+    if (clearOnSubmit) setText('')
     setMenuOpen(false)
   }
 
@@ -109,7 +113,7 @@ export function Composer({
 
   return (
     <div className="shrink-0">
-      <div className="relative rounded-[1.25rem] bg-white shadow-[var(--shadow-lift)] ring-1 ring-[var(--color-line-strong)] transition-[box-shadow] duration-200 focus-within:shadow-[0_0_0_4px_oklch(0.608_0.192_280/0.12),var(--shadow-lift)] focus-within:ring-sky-400/70">
+      <div className="ui-glass relative rounded-[20px] transition-[box-shadow,border-color] duration-200 focus-within:!border-sky-300 focus-within:shadow-[0_0_0_4px_oklch(0.608_0.192_280/0.12),var(--shadow-lift)]">
         {menuOpen && (
           <SlashCommandMenu
             id="slash-command-menu"
@@ -160,7 +164,7 @@ export function Composer({
           placeholder={running ? 'The agent is working… press Stop to interrupt.' : (placeholder ?? 'Message the agent… (type / for skill commands)')}
           disabled={running}
           rows={2}
-          className="block max-h-48 min-h-[3.25rem] w-full resize-none rounded-t-[1.25rem] bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed text-zinc-900 placeholder:text-zinc-400 focus:outline-none disabled:cursor-not-allowed"
+          className="block max-h-48 min-h-[3.25rem] w-full resize-none rounded-t-[20px] bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed text-zinc-900 placeholder:text-zinc-400 focus:outline-none disabled:cursor-not-allowed"
         />
         <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
           {agents && agents.length > 0 && (

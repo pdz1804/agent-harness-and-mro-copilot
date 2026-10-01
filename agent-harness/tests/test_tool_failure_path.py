@@ -41,6 +41,9 @@ def test_permanent_tool_failure_exhausts_retries_and_is_recorded(tools, runs_dir
     assert len(retry_events) == fast_config.max_tool_retries
     assert len(exhausted_events) == 1
     assert "Unknown service" in error_events[0].data["error"]
+    # The error names the real services so the model can correct the call.
+    assert "Registered services: " in error_events[0].data["error"]
+    assert "payments-api" in error_events[0].data["error"]
 
 
 class _FlakyInput(BaseModel):

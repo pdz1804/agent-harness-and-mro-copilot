@@ -72,8 +72,13 @@ class GetServiceStatusTool(Tool[GetServiceStatusInput, GetServiceStatusOutput]):
     def run(self, args: GetServiceStatusInput) -> GetServiceStatusOutput:
         row = db.get_service(args.service_name)
         if row is None:
+            # Name the registered services so the model can correct itself
+            # (e.g. "fleet" -> check each real service) instead of retrying
+            # the same bad name.
+            known = ", ".join(sorted(r["name"] for r in db.list_services()))
             raise ToolExecutionError(
-                f"Unknown service '{args.service_name}'; not present in service registry."
+                f"Unknown service '{args.service_name}'; not present in service registry. "
+                f"Registered services: {known or 'none'}. Call this tool once per service."
             )
         # Stored in `services.error_rate` as a 0-1 fraction; surfaced to the
         # LLM/tool caller as an unambiguous percentage (`error_rate_pct`) so

@@ -1,10 +1,14 @@
-import { CaretDown, Sparkle } from '@phosphor-icons/react'
+import { CaretRight, Sparkle } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Composer } from '../components/chat/Composer'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { Button, ErrorBanner, Field, Input } from '../components/ui'
 import { ApiError, api } from '../lib/api'
+import { limitError } from '../lib/run-limits'
 import type { Agent, StarterPrompt } from '../lib/api-types'
+import { useMe } from '../hooks/useMe'
+import { attentionChips, firstName, type AttentionChip } from '../lib/attention'
+import { Chip } from '../components/ui/Chip'
 
 /** Chat-product-style composer: a centered welcome area (like a fresh
  * ChatGPT/Claude conversation) with the objective input docked at the
@@ -22,13 +26,33 @@ export function NewRunPage() {
   const [agents, setAgents] = useState<Agent[] | null>(null)
   const [agentId, setAgentId] = useState<string>('')
   const [starters, setStarters] = useState<StarterPrompt[]>([])
+  const [chips, setChips] = useState<AttentionChip[]>([])
+  const { me } = useMe()
+  const name = firstName(me?.display_name)
+
+  // Live "needs attention" chips; a failed fetch just hides them.
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([api.listServices(), api.listIncidents({ status: 'open' })])
+      .then(([services, incidents]) => {
+        if (!cancelled) setChips(attentionChips(services, incidents))
+      })
+      .catch(() => {
+        if (!cancelled) setChips([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     api
       .listAgents()
       .then((list) => {
         setAgents(list)
-        setAgentId(list.find((a) => a.is_default)?.id ?? list[0]?.id ?? '')
+        // `?agent=<id>` (the Agents page's "Start run") preselects that agent.
+        const wanted = new URLSearchParams(window.location.search).get('agent')
+        setAgentId(list.find((a) => a.id === wanted)?.id ?? list.find((a) => a.is_default)?.id ?? list[0]?.id ?? '')
       })
       .catch(() => setAgents([]))
   }, [])
@@ -52,6 +76,11 @@ export function NewRunPage() {
   }, [agentId])
 
   const handleSubmit = async (trimmed: string) => {
+    if (limitError(maxSteps) || limitError(maxWallClock)) {
+      setShowAdvanced(true)
+      setError('Fix the advanced limits first, or clear them to use the defaults.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -78,11 +107,26 @@ export function NewRunPage() {
         <span className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-2xl bg-zinc-950 text-white shadow-[var(--shadow-lift)]">
           <Sparkle size={20} weight="fill" className="text-sky-300" />
         </span>
-        <h1 className="text-[2rem] leading-tight font-semibold tracking-[-0.03em] text-zinc-950 sm:text-[2.25rem]">What's the objective?</h1>
-        <p className="mx-auto mt-2 max-w-md text-[15px] text-zinc-500">
-          Give the ops assistant a task. It decides which tools to call, pauses for your approval before creating an incident, and
-          streams its answer live, token by token.
-        </p>
+        <h1 className="text-[2rem] leading-tight font-semibold tracking-[-0.03em] text-zinc-950 sm:text-[2.25rem]">
+          {name ? `What needs attention, ${name}?` : 'What needs attention?'}
+        </h1>
+        {chips.length > 0 ? (
+          <ul aria-label="Needs attention" className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            {chips.map((chip) => (
+              <li key={chip.key}>
+                <Link to={chip.to} className="rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500">
+                  <Chip tone={chip.tone} dot={chip.tone !== 'neutral'} className="hover:brightness-95">
+                    {chip.label}
+                  </Chip>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mx-auto mt-2 max-w-md text-[15px] text-zinc-500">
+            Give the agent a task. It picks the tools, asks before any write, and streams its answer live.
+          </p>
+        )}
       </div>
 
       {error && (
@@ -99,50 +143,43 @@ export function NewRunPage() {
           value={objective}
           onValueChange={setObjective}
           submitting={submitting}
-          placeholder="Message the ops assistant… (e.g. search-index is down, please create an incident)…"
+          placeholder={`Message ${agents?.find((a) => a.id === agentId)?.name ?? 'the agent'} (e.g. search-index is down, please open an incident)`}
+          clearOnSubmit={false}
           onSubmit={(trimmed) => void handleSubmit(trimmed)}
         />
 
         <div className="mt-3">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setShowAdvanced((v) => !v)}
             aria-expanded={showAdvanced}
-            className="flex h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-900"
+            icon={<CaretRight size={11} weight="bold" className="ui-fold-chevron" />}
           >
-            <CaretDown size={11} weight="bold" className={`transition-transform duration-200 ${showAdvanced ? '' : '-rotate-90'}`} />
             Advanced limits
-          </button>
+          </Button>
           {showAdvanced && (
             <div className="mt-2 grid animate-rise grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="max-steps" className="mb-1 block text-xs font-medium text-zinc-600">
-                  Max steps
-                </label>
-                <input name="max-steps" autoComplete="off"
-                  id="max-steps"
-                  type="number"
-                  min={1}
-                  value={maxSteps}
-                  onChange={(e) => setMaxSteps(e.target.value)}
-                  placeholder="12 (default)…"
-                  className="ui-input w-full"
-                />
-              </div>
-              <div>
-                <label htmlFor="max-wall-clock" className="mb-1 block text-xs font-medium text-zinc-600">
-                  Max wall clock (s)
-                </label>
-                <input name="max-wall-clock" autoComplete="off"
-                  id="max-wall-clock"
-                  type="number"
-                  min={1}
-                  value={maxWallClock}
-                  onChange={(e) => setMaxWallClock(e.target.value)}
-                  placeholder="60 (default)…"
-                  className="ui-input w-full"
-                />
-              </div>
+              <Field label="Max steps" hint="Default 12" error={limitError(maxSteps)}>
+                {(f) => (
+                  <Input {...f} name="max-steps" autoComplete="off" type="number" min={1} value={maxSteps} onChange={(e) => setMaxSteps(e.target.value)} placeholder="12" className="w-full" />
+                )}
+              </Field>
+              <Field label="Max wall clock (s)" hint="Default 60" error={limitError(maxWallClock)}>
+                {(f) => (
+                  <Input
+                    {...f}
+                    name="max-wall-clock"
+                    autoComplete="off"
+                    type="number"
+                    min={1}
+                    value={maxWallClock}
+                    onChange={(e) => setMaxWallClock(e.target.value)}
+                    placeholder="60"
+                    className="w-full"
+                  />
+                )}
+              </Field>
             </div>
           )}
         </div>
@@ -158,7 +195,7 @@ export function NewRunPage() {
                 type="button"
                 title={`Uses the ${starter.skill_slug} skill`}
                 onClick={() => setObjective(starter.text)}
-                className="group flex items-start gap-3 rounded-xl bg-white px-3.5 py-3 text-left text-[13px] text-zinc-700 shadow-[var(--shadow-xs)] ring-1 ring-[var(--color-line)] transition-[box-shadow,transform,color] duration-200 hover:-translate-y-px hover:text-zinc-950 hover:shadow-[var(--shadow-lift)]"
+                className="group flex snap-start items-start gap-3 rounded-[14px] bg-white px-3.5 py-3 text-left text-[13px] text-zinc-700 shadow-[var(--shadow-xs)] ring-1 ring-[var(--color-line)] transition-[box-shadow,transform,color] duration-200 hover:-translate-y-px hover:text-zinc-950 hover:shadow-[var(--shadow-lift)]"
               >
                 <span className="min-w-0 flex-1 leading-snug">{starter.text}</span>
                 <span className="font-data shrink-0 rounded-md bg-zinc-950/[0.04] px-1.5 py-0.5 text-[11px] text-zinc-500 transition-colors group-hover:bg-sky-50 group-hover:text-sky-700">

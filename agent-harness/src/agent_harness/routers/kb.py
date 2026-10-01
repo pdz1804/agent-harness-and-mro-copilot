@@ -94,6 +94,8 @@ class RetrieveResult(BaseModel):
     effective_mode: str
     dense_available: bool
     hits: list[RetrievedChunk]
+    latency_ms: float = Field(default=0.0, description="Server-side ranking time for this query, in milliseconds.")
+    indexed_chunks: int = Field(default=0, description="Chunks in the index the query was ranked against.")
 
 
 def _title_from(content: str, fallback: str = "Untitled document") -> str:
@@ -252,8 +254,11 @@ def retrieve_chunks(request: RetrieveRequest, user: CurrentUser = Depends(curren
     """Retrieval playground: run a query and see every ranked chunk with its
     BM25, vector and fused (RRF) scores, plus which chunks the agent's search
     tool would actually return."""
-    result: dict[str, Any] = retrieval.get_index().rank_chunks(request.query, mode=request.mode, top_k=request.top_k)
-    return RetrieveResult(**result)
+    index = retrieval.get_index()
+    started = time.perf_counter()
+    result: dict[str, Any] = index.rank_chunks(request.query, mode=request.mode, top_k=request.top_k)
+    latency_ms = round((time.perf_counter() - started) * 1000, 1)
+    return RetrieveResult(**result, latency_ms=latency_ms, indexed_chunks=len(index.chunks))
 
 
 class KBDocView(BaseModel):

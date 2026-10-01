@@ -2,7 +2,8 @@ import { HandPalm } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePendingApprovals } from '../hooks/usePendingApprovals'
-import { badgeLabel, singleTarget, tabTitle, waitingFor } from '../lib/pending-approvals'
+import { setApprovalCount } from '../lib/document-title'
+import { badgeLabel, singleTarget, waitingFor } from '../lib/pending-approvals'
 
 /** Live header badge: appears while one or more runs are paused on a human
  * approval the signed-in user can resolve. One waiting run: click goes straight
@@ -13,13 +14,9 @@ export function PendingApprovalsBadge() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const baseTitle = useRef(document.title)
-
   useEffect(() => {
-    document.title = tabTitle(baseTitle.current, items.length)
-    return () => {
-      document.title = baseTitle.current
-    }
+    setApprovalCount(items.length)
+    return () => setApprovalCount(0)
   }, [items.length])
 
   useEffect(() => {
@@ -51,7 +48,7 @@ export function PendingApprovalsBadge() {
         aria-haspopup={target ? undefined : 'menu'}
         aria-expanded={target ? undefined : open}
         onClick={() => (target ? navigate(target) : setOpen((v) => !v))}
-        className="inline-flex h-8 animate-rise items-center gap-2 rounded-full bg-amber-50 pr-3 pl-2 text-xs font-medium text-amber-900 ring-1 ring-amber-300/80 ring-inset transition-colors duration-150 hover:bg-amber-100"
+        className="inline-flex h-7 animate-rise items-center gap-2 rounded-full bg-amber-50 pr-3 pl-2 text-xs font-medium text-amber-900 ring-1 ring-amber-300/80 ring-inset transition-colors duration-150 hover:bg-amber-100"
       >
         <span className="relative flex h-2 w-2" aria-hidden="true"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" /></span>
         <HandPalm size={14} weight="bold" aria-hidden="true" />
@@ -62,7 +59,7 @@ export function PendingApprovalsBadge() {
         <div
           role="menu"
           aria-label="Runs waiting for approval"
-          className="absolute top-full right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] animate-rise rounded-xl border border-[var(--color-line)] bg-white p-1 shadow-[var(--shadow-lg)]"
+          className="ui-glass absolute top-full right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] animate-pop rounded-[20px] p-1"
         >
           <p className="ui-section-label px-2.5 pt-2 pb-1">Waiting for your decision</p>
           <ul>
@@ -72,7 +69,7 @@ export function PendingApprovalsBadge() {
                   to={`/runs/${item.run_id}`}
                   role="menuitem"
                   onClick={() => setOpen(false)}
-                  className="block rounded-lg px-2.5 py-2 transition-colors duration-150 hover:bg-zinc-100"
+                  className="block rounded-[14px] px-2.5 py-2 transition-colors duration-150 hover:bg-zinc-950/[0.05]"
                 >
                   <span className="block truncate text-sm font-medium text-zinc-900">{item.objective}</span>
                   <span className="mt-0.5 flex items-center gap-2 text-xs text-zinc-600">

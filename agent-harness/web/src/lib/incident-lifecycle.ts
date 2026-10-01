@@ -14,7 +14,7 @@ const STATUS_LABELS: Record<IncidentStatus, string> = {
 const SEVERITY_RANK: Record<IncidentSeverity, number> = { low: 0, medium: 1, high: 2, critical: 3 }
 
 /** Lifecycle: open -> acknowledged -> resolved; open may skip straight to
- * resolved; resolved is terminal (no reopening). */
+ * resolved. Resolved offers no forward action (Undo of a resolve reopens it). */
 export function nextActions(status: string, canMutate: boolean): IncidentAction[] {
   if (!canMutate) return []
   if (status === 'open') return ['acknowledge', 'resolve']
@@ -45,15 +45,73 @@ export function distinctServices(list: Incident[]): string[] {
   return [...names].sort((a, b) => a.localeCompare(b))
 }
 
-export function filterIncidents(
-  list: Incident[],
-  filter: { status: StatusFilter; service: string | null },
-): Incident[] {
+export const SEVERITIES: IncidentSeverity[] = ['critical', 'high', 'medium', 'low']
+
+export interface IncidentFilter {
+  status: StatusFilter
+  service: string | null
+  /** Exact severity, or empty for any. */
+  severity?: string | null
+  /** Case-insensitive match on id, title, description and service. */
+  query?: string
+}
+
+export function matchesQuery(incident: Incident, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return [incident.id, incident.title, incident.description, incident.service_name ?? ''].some((field) =>
+    field.toLowerCase().includes(needle),
+  )
+}
+
+export function filterIncidents(list: Incident[], filter: IncidentFilter): Incident[] {
   return list.filter(
     (incident) =>
       (filter.status === 'all' || incident.status === filter.status) &&
-      (!filter.service || incident.service_name === filter.service),
+      (!filter.service || incident.service_name === filter.service) &&
+      (!filter.severity || incident.severity === filter.severity) &&
+      (!filter.query || matchesQuery(incident, filter.query)),
   )
+}
+
+/** Sortable list columns (`?sort=severity:desc`). */
+export const INCIDENT_SORT_COLUMNS = ['title', 'severity', 'status', 'service', 'opened'] as const
+
+/** The comparable value for one column; status sorts by lifecycle order. */
+export function incidentSortKey(incident: Incident, column: string): string | number | null {
+  switch (column) {
+    case 'title':
+      return incident.title
+    case 'severity':
+      return severityRank(incident.severity)
+    case 'status': {
+      const index = (STATUS_ORDER as string[]).indexOf(incident.status)
+      return index < 0 ? STATUS_ORDER.length : index
+    }
+    case 'service':
+      return incident.service_name
+    default: {
+      const t = Date.parse(incident.created_at)
+      return Number.isNaN(t) ? null : t
+    }
+  }
+}
+
+/** What the UI shows the instant an acknowledge is clicked, before the
+ * deferred request is sent. */
+export function acknowledgePatch(now: Date, userId: string | null): Partial<Incident> {
+  return { status: 'acknowledged', acknowledged_at: now.toISOString(), acknowledged_by: userId }
+}
+
+/** Overlay an optimistic patch on a server row (identity when there is none). */
+export function withPatch<T extends Incident>(incident: T, patch: Partial<Incident> | undefined): T {
+  return patch ? { ...incident, ...patch } : incident
+}
+
+/** Display label for a timeline event (the API also emits "reopened"). */
+export function timelineEventLabel(event: string): string {
+  const labels: Record<string, string> = { opened: 'Opened', acknowledged: 'Acknowledged', resolved: 'Resolved', reopened: 'Reopened' }
+  return labels[event] ?? event
 }
 
 const MINUTE = 60_000
@@ -88,4 +146,11 @@ export function relativeAge(iso: string, now: number = Date.now()): string {
   const diff = now - t
   if (diff < MINUTE) return 'just now'
   return `${formatMs(diff)} ago`
+}
+
+export const NOTE_MAX = 1000
+
+/** Inline validation for the resolution note (optional, capped by the API). */
+export function resolutionNoteError(note: string): string | null {
+  return note.trim().length > NOTE_MAX ? `Keep the note under ${NOTE_MAX} characters (now ${note.trim().length}).` : null
 }

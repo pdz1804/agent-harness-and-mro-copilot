@@ -1,5 +1,6 @@
 import { DownloadSimple } from '@phosphor-icons/react'
 import type { RunSnapshot } from '../../lib/api-types'
+import { Button } from '../ui/Button'
 import { JsonTree } from '../ui/JsonTree'
 
 export function RawTab({ snapshot }: { snapshot: RunSnapshot }) {
@@ -15,14 +16,9 @@ export function RawTab({ snapshot }: { snapshot: RunSnapshot }) {
 
   return (
     <div className="space-y-3">
-      <button
-        type="button"
-        onClick={download}
-        className="ui-btn ui-btn-secondary ui-btn-sm"
-      >
-        <DownloadSimple size={13} weight="bold" />
+      <Button size="sm" onClick={download} icon={<DownloadSimple size={13} weight="bold" />}>
         Download JSON
-      </button>
+      </Button>
       <JsonTree value={snapshot.history} />
     </div>
   )

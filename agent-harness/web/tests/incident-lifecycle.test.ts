@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { Incident } from '../src/lib/api-types'
 import {
+  acknowledgePatch,
   countByStatus,
   distinctServices,
+  incidentSortKey,
+  matchesQuery,
+  timelineEventLabel,
+  withPatch,
   durationBetween,
   filterIncidents,
   nextActions,
   relativeAge,
+  resolutionNoteError,
   severityRank,
   statusLabel,
 } from '../src/lib/incident-lifecycle'
@@ -87,5 +93,48 @@ describe('durations', () => {
     expect(relativeAge('2026-10-01T00:00:00Z', now)).toBe('3h ago')
     expect(relativeAge('2026-10-01T02:59:50Z', now)).toBe('just now')
     expect(relativeAge('nope', now)).toBe('')
+  })
+})
+
+describe('severity, search and sort helpers', () => {
+  const list = [
+    inc({ id: 'a', title: 'Latency spike', severity: 'high', service_name: 'billing', created_at: '2026-10-01T02:00:00Z' }),
+    inc({ id: 'b', title: 'Disk full', severity: 'low', service_name: 'auth', description: 'volume at 99%' }),
+  ]
+  it('filters by severity and query together', () => {
+    expect(filterIncidents(list, { status: 'all', service: null, severity: 'high' }).map((i) => i.id)).toEqual(['a'])
+    expect(filterIncidents(list, { status: 'all', service: null, query: 'DISK' }).map((i) => i.id)).toEqual(['b'])
+    expect(filterIncidents(list, { status: 'all', service: null, query: '99%' }).map((i) => i.id)).toEqual(['b'])
+    expect(filterIncidents(list, { status: 'all', service: null, query: 'zzz' })).toEqual([])
+  })
+  it('matches ids and services', () => {
+    expect(matchesQuery(list[0], 'billing')).toBe(true)
+    expect(matchesQuery(list[0], '  ')).toBe(true)
+  })
+  it('derives sort keys', () => {
+    expect(incidentSortKey(list[0], 'severity')).toBe(2)
+    expect(incidentSortKey(list[0], 'status')).toBe(0)
+    expect(incidentSortKey(inc({ status: 'weird' }), 'status')).toBe(3)
+    expect(incidentSortKey(list[0], 'opened')).toBe(Date.parse('2026-10-01T02:00:00Z'))
+    expect(incidentSortKey(inc({ created_at: 'bad' }), 'opened')).toBeNull()
+    expect(incidentSortKey(list[1], 'title')).toBe('Disk full')
+  })
+  it('builds and applies an acknowledge patch', () => {
+    const patch = acknowledgePatch(new Date('2026-10-01T05:00:00Z'), 'u1')
+    expect(patch).toEqual({ status: 'acknowledged', acknowledged_at: '2026-10-01T05:00:00.000Z', acknowledged_by: 'u1' })
+    expect(withPatch(list[0], patch).status).toBe('acknowledged')
+    expect(withPatch(list[0], undefined)).toBe(list[0])
+  })
+  it('labels timeline events with a fallback', () => {
+    expect(timelineEventLabel('reopened')).toBe('Reopened')
+    expect(timelineEventLabel('x')).toBe('x')
+  })
+})
+
+describe('resolutionNoteError', () => {
+  it('accepts empty and short notes, rejects over the cap', () => {
+    expect(resolutionNoteError('')).toBeNull()
+    expect(resolutionNoteError('Rolled back the deploy')).toBeNull()
+    expect(resolutionNoteError('x'.repeat(1001))).toMatch(/under 1000/)
   })
 })

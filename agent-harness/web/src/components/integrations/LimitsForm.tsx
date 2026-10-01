@@ -1,173 +1,158 @@
-import { useId, useState } from 'react'
-import { ApiError, api } from '../../lib/api'
+import { useEffect, useState } from 'react'
+import { api, errorText } from '../../lib/api'
 import type { Integration, IntegrationDetail } from '../../lib/api-types'
-import {
-  RETRIES_MAX,
-  RETRIES_MIN,
-  TIMEOUT_MAX,
-  TIMEOUT_MIN,
-  describeLimit,
-  parseRetries,
-  parseTimeout,
-} from '../../lib/integration-limits'
+import { RETRIES_MAX, RETRIES_MIN, TIMEOUT_MAX, TIMEOUT_MIN, describeLimit, parseRetries, parseTimeout } from '../../lib/integration-limits'
+import { describeLimits, limitsToText, sameLimits, type LimitsValue } from '../../lib/integrations-filter'
+import { Button, Field, FactList, Input, useToast } from '../ui'
+
+export interface LimitsFormStatus {
+  /** The inputs differ from the saved limits (guards closing the sheet). */
+  dirty: boolean
+  /** Valid, changed and not mid-save: the footer Save is enabled. */
+  canSave: boolean
+  saving: boolean
+}
 
 interface LimitsFormProps {
   tool: string
   detail: IntegrationDetail
   canMutate: boolean
-  /** Tooltip explaining why editing is unavailable (non-admins). */
+  /** Why editing is unavailable (non-admins), shown as visible text. */
   disabledTitle?: string
+  /** DOM id of the `<form>`, so the sheet footer's Save button can submit it. */
+  formId: string
   onSaved: (updated: Integration) => void
+  onStatus: (status: LimitsFormStatus) => void
 }
 
-/** Effective timeout/retries plus, for admins, override inputs. A blank input
- * means "no override" (the global default): Save always sends both fields, and a
- * blank one is sent as null, which clears that override. After a save the inputs
- * are re-synced from the server's response. */
-export function LimitsForm({ tool, detail, canMutate, disabledTitle, onSaved }: LimitsFormProps) {
-  const uid = useId()
-  const [timeoutText, setTimeoutText] = useState(detail.timeout_seconds === null ? '' : String(detail.timeout_seconds))
-  const [retriesText, setRetriesText] = useState(detail.max_retries === null ? '' : String(detail.max_retries))
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
+/** Effective timeout/retries plus, for roles that can edit, override inputs.
+ * A blank input means "no override" (the global default): Save always sends
+ * both fields, and a blank one is sent as null, which clears that override.
+ * Inputs validate on blur. Every save toasts with Undo, which writes the
+ * previous limits back. */
+export function LimitsForm({ tool, detail, canMutate, disabledTitle, formId, onSaved, onStatus }: LimitsFormProps) {
+  const toast = useToast()
+  const [timeoutText, setTimeoutText] = useState(limitsToText(detail.timeout_seconds))
+  const [retriesText, setRetriesText] = useState(limitsToText(detail.max_retries))
+  const [baseline, setBaseline] = useState<LimitsValue>({ timeout_seconds: detail.timeout_seconds, max_retries: detail.max_retries })
+  const [touched, setTouched] = useState({ timeout: false, retries: false })
+  const [saving, setSaving] = useState<'save' | 'reset' | null>(null)
 
   const timeout = parseTimeout(timeoutText)
   const retries = parseRetries(retriesText)
-  const unchanged =
-    timeout.ok && retries.ok && timeout.value === detail.timeout_seconds && retries.value === detail.max_retries
-  const hasOverride = detail.timeout_seconds !== null || detail.max_retries !== null
+  const valid = timeout.ok && retries.ok
+  const dirty = valid ? !sameLimits({ timeout_seconds: timeout.value, max_retries: retries.value }, baseline) : timeoutText.trim() !== limitsToText(baseline.timeout_seconds) || retriesText.trim() !== limitsToText(baseline.max_retries)
+  const canSave = canMutate && valid && dirty && saving === null
+  const hasOverride = baseline.timeout_seconds !== null || baseline.max_retries !== null
 
-  const send = async (limits: { timeout_seconds: number | null; max_retries: number | null }) => {
-    setSaving(true)
-    setMessage(null)
+  useEffect(() => {
+    onStatus({ dirty, canSave, saving: saving !== null })
+  }, [dirty, canSave, saving, onStatus])
+
+  const apply = (updated: Integration) => {
+    setTimeoutText(limitsToText(updated.timeout_seconds))
+    setRetriesText(limitsToText(updated.max_retries))
+    setBaseline({ timeout_seconds: updated.timeout_seconds, max_retries: updated.max_retries })
+    setTouched({ timeout: false, retries: false })
+    onSaved(updated)
+  }
+
+  const send = async (limits: LimitsValue, kind: 'save' | 'reset') => {
+    const previous = baseline
+    setSaving(kind)
     try {
       const updated = await api.updateIntegrationLimits(tool, limits)
-      setTimeoutText(updated.timeout_seconds === null ? '' : String(updated.timeout_seconds))
-      setRetriesText(updated.max_retries === null ? '' : String(updated.max_retries))
-      setMessage({ kind: 'ok', text: 'Saved. New runs will use these limits.' })
-      onSaved(updated)
+      apply(updated)
+      toast({
+        title: kind === 'reset' ? `${tool}: limits reset to default` : `${tool}: ${describeLimits(limits)} saved`,
+        description: 'Applies to new runs.',
+        action: {
+          label: 'Undo',
+          run: async () => {
+            apply(await api.updateIntegrationLimits(tool, previous))
+          },
+        },
+      })
     } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Could not save the limits. Try again.' })
+      toast({ tone: 'error', title: `Couldn't save limits for ${tool}`, description: errorText(err, 'Try again.') })
     } finally {
-      setSaving(false)
+      setSaving(null)
     }
   }
 
-  const save = () => {
-    if (!timeout.ok || !retries.ok) return
-    void send({ timeout_seconds: timeout.value, max_retries: retries.value })
+  const submit = () => {
+    setTouched({ timeout: true, retries: true })
+    if (!canSave || !timeout.ok || !retries.ok) return
+    void send({ timeout_seconds: timeout.value, max_retries: retries.value }, 'save')
   }
 
   return (
-    <div>
-      <dl className="grid grid-cols-2 gap-3 text-[13px]">
-        <div>
-          <dt className="text-xs text-zinc-600">Timeout (seconds)</dt>
-          <dd className="font-medium text-zinc-900 tabular-nums">
-            {describeLimit(detail.effective.timeout_seconds, detail.effective.timeout_overridden)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-zinc-600">Max retries</dt>
-          <dd className="font-medium text-zinc-900 tabular-nums">
-            {describeLimit(detail.effective.max_retries, detail.effective.retries_overridden)}
-          </dd>
-        </div>
-      </dl>
+    <div className="space-y-3">
+      <FactList
+        items={[
+          { label: 'Effective timeout', value: <span className="font-medium tabular-nums">{describeLimit(detail.effective.timeout_seconds, detail.effective.timeout_overridden)}</span> },
+          { label: 'Effective retries', value: <span className="font-medium tabular-nums">{describeLimit(detail.effective.max_retries, detail.effective.retries_overridden)}</span> },
+        ]}
+      />
 
       {canMutate ? (
         <form
-          className="mt-3"
+          id={formId}
+          noValidate
           onSubmit={(e) => {
             e.preventDefault()
-            save()
+            submit()
           }}
         >
-          <div className="flex flex-wrap items-start gap-3">
-            <div>
-              <label htmlFor={`${uid}-timeout`} className="mb-1 block text-xs font-medium text-zinc-700">
-                Timeout (seconds)
-              </label>
-              <input
-                id={`${uid}-timeout`}
-                name="timeout-seconds"
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                spellCheck={false}
-                value={timeoutText}
-                onChange={(e) => setTimeoutText(e.target.value)}
-                placeholder="default…"
-                aria-invalid={!timeout.ok}
-                aria-describedby={`${uid}-timeout-hint`}
-                className="ui-input w-32 tabular-nums"
-              />
-              <p
-                id={`${uid}-timeout-hint`}
-                className={`mt-1 max-w-48 text-xs ${timeout.ok ? 'text-zinc-600' : 'text-rose-700'}`}
-              >
-                {timeout.ok ? `${TIMEOUT_MIN} to ${TIMEOUT_MAX}. Blank uses the default.` : timeout.error}
-              </p>
-            </div>
-            <div>
-              <label htmlFor={`${uid}-retries`} className="mb-1 block text-xs font-medium text-zinc-700">
-                Max retries
-              </label>
-              <input
-                id={`${uid}-retries`}
-                name="max-retries"
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                spellCheck={false}
-                value={retriesText}
-                onChange={(e) => setRetriesText(e.target.value)}
-                placeholder="default…"
-                aria-invalid={!retries.ok}
-                aria-describedby={`${uid}-retries-hint`}
-                className="ui-input w-32 tabular-nums"
-              />
-              <p
-                id={`${uid}-retries-hint`}
-                className={`mt-1 max-w-48 text-xs ${retries.ok ? 'text-zinc-600' : 'text-rose-700'}`}
-              >
-                {retries.ok ? `${RETRIES_MIN} to ${RETRIES_MAX}. Blank uses the default.` : retries.error}
-              </p>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Timeout (seconds)" optional error={touched.timeout && !timeout.ok ? timeout.error : null} hint={`${TIMEOUT_MIN} to ${TIMEOUT_MAX}. Blank uses the default.`}>
+              {(p) => (
+                <Input
+                  {...p}
+                  name="timeout-seconds"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={timeoutText}
+                  onChange={(e) => setTimeoutText(e.target.value)}
+                  onBlur={() => setTouched((t) => ({ ...t, timeout: true }))}
+                  placeholder="Default…"
+                  className="w-full tabular-nums"
+                />
+              )}
+            </Field>
+            <Field label="Max retries" optional error={touched.retries && !retries.ok ? retries.error : null} hint={`${RETRIES_MIN} to ${RETRIES_MAX}. Blank uses the default.`}>
+              {(p) => (
+                <Input
+                  {...p}
+                  name="max-retries"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={retriesText}
+                  onChange={(e) => setRetriesText(e.target.value)}
+                  onBlur={() => setTouched((t) => ({ ...t, retries: true }))}
+                  placeholder="Default…"
+                  className="w-full tabular-nums"
+                />
+              )}
+            </Field>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="submit"
-              className="ui-btn ui-btn-primary ui-btn-sm"
-              disabled={saving || !timeout.ok || !retries.ok || unchanged}
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              type="button"
-              className="ui-btn ui-btn-secondary ui-btn-sm"
-              disabled={saving || !hasOverride}
-              onClick={() => void send({ timeout_seconds: null, max_retries: null })}
-            >
+          <div className="mt-3">
+            <Button size="sm" disabled={saving !== null || !hasOverride} loading={saving === 'reset'} onClick={() => void send({ timeout_seconds: null, max_retries: null }, 'reset')}>
               Reset to default
-            </button>
+            </Button>
           </div>
         </form>
       ) : (
-        <p className="mt-2 text-xs text-zinc-600" title={disabledTitle}>
+        <p className="text-xs text-zinc-600" title={disabledTitle}>
           {disabledTitle ?? 'Read-only.'}
         </p>
       )}
 
-      <p className="mt-2 text-xs text-zinc-600">Limits apply to new runs only. Runs already in progress keep theirs.</p>
-      {message && (
-        <p
-          role={message.kind === 'error' ? 'alert' : 'status'}
-          className={`mt-1 text-xs [overflow-wrap:anywhere] ${message.kind === 'error' ? 'text-rose-700' : 'text-emerald-800'}`}
-        >
-          {message.text}
-        </p>
-      )}
+      <p className="text-xs text-zinc-600">Limits apply to new runs only. Runs already in progress keep theirs.</p>
     </div>
   )
 }

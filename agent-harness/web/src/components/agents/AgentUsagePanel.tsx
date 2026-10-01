@@ -1,8 +1,7 @@
 import { CheckCircle, Circle, WarningCircle, XCircle } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { formatAvgSteps, formatSuccessRate, successRateTitle, summarizeStatuses } from '../../lib/agent-usage'
-import { ErrorBanner } from '../ErrorBanner'
-import { Skeleton } from '../Skeleton'
+import { Card, ErrorState, Skeleton, Table } from '../ui'
 import { useAgentStats } from './use-agent-stats'
 
 function StatusIcon({ status }: { status: string }) {
@@ -18,14 +17,9 @@ export function AgentUsagePanel({ agentId }: { agentId: string }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const state = useAgentStats(agentId, refreshKey)
 
-  if (state.phase === 'loading') return <Skeleton className="h-40 w-full rounded-lg" />
+  if (state.phase === 'loading') return <Skeleton className="h-40 w-full rounded-[14px]" />
   if (state.phase === 'error') {
-    return (
-      <ErrorBanner
-        message="Could not load usage stats for this agent."
-        onRetry={() => setRefreshKey((n) => n + 1)}
-      />
-    )
+    return <ErrorState message="Could not load usage stats for this agent." onRetry={() => setRefreshKey((n) => n + 1)} />
   }
   const { stats } = state
   const statuses = summarizeStatuses(stats.by_status)
@@ -33,53 +27,51 @@ export function AgentUsagePanel({ agentId }: { agentId: string }) {
   return (
     <div className="space-y-4">
       <dl className="grid grid-cols-3 gap-3 tabular-nums">
-        <div className="ui-card p-3">
-          <dt className="ui-section-label">Runs</dt>
+        <Card padding="sm">
+          <dt className="text-xs text-zinc-500">Runs</dt>
           <dd className="mt-1 text-lg font-semibold text-zinc-900">{stats.runs}</dd>
-        </div>
-        <div className="ui-card p-3" title={successRateTitle(stats.scored_runs)}>
-          <dt className="ui-section-label">Eval success</dt>
+        </Card>
+        <Card padding="sm" title={successRateTitle(stats.scored_runs)}>
+          <dt className="text-xs text-zinc-500">Eval success</dt>
           <dd className="mt-1 text-lg font-semibold text-zinc-900">
             {formatSuccessRate(stats.success_rate, stats.scored_runs)}
           </dd>
           <dd className="text-xs text-zinc-600">{stats.scored_runs} scored</dd>
-        </div>
-        <div className="ui-card p-3">
-          <dt className="ui-section-label">Avg steps</dt>
+        </Card>
+        <Card padding="sm">
+          <dt className="text-xs text-zinc-500">Avg steps</dt>
           <dd className="mt-1 text-lg font-semibold text-zinc-900">{formatAvgSteps(stats.avg_steps)}</dd>
-        </div>
+        </Card>
       </dl>
 
       {statuses.length === 0 ? (
-        <p className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-xs text-zinc-600">
+        <p className="rounded-[14px] border border-dashed border-[var(--color-line-strong)] p-4 text-center text-xs text-zinc-600">
           No runs yet. Use the Test chat tab to start one; usage appears here.
         </p>
       ) : (
-        <div className="ui-card overflow-hidden">
-          <table className="ui-table">
-            <thead>
-              <tr>
-                <th className="px-3 py-1.5">Status</th>
-                <th className="px-3 py-1.5 text-right">Runs</th>
-                <th className="px-3 py-1.5 text-right">Share</th>
+        <Table label="Runs by status">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th className="text-right">Runs</th>
+              <th className="text-right">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {statuses.map((s) => (
+              <tr key={s.status}>
+                <td>
+                  <span className="inline-flex items-center gap-1.5 text-zinc-800">
+                    <StatusIcon status={s.status} />
+                    <span className="font-data">{s.status}</span>
+                  </span>
+                </td>
+                <td className="text-right tabular-nums">{s.count}</td>
+                <td className="text-right tabular-nums">{Math.round(s.share * 100)}%</td>
               </tr>
-            </thead>
-            <tbody>
-              {statuses.map((s) => (
-                <tr key={s.status}>
-                  <td className="px-3 py-1.5">
-                    <span className="inline-flex items-center gap-1.5 text-zinc-800">
-                      <StatusIcon status={s.status} />
-                      <span className="font-data">{s.status}</span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-1.5 text-right">{s.count}</td>
-                  <td className="px-3 py-1.5 text-right">{Math.round(s.share * 100)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </Table>
       )}
     </div>
   )

@@ -1,115 +1,139 @@
 import { UploadSimple } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
-import { ApiError, api } from '../../lib/api'
+import { api, errorText } from '../../lib/api'
 import type { KBDocDetail } from '../../lib/api-types'
-import { ErrorBanner } from '../ErrorBanner'
+import { validateDocContent, validateFileSize } from '../../lib/kb-docs'
+import { Button, ConfirmPanel, ErrorBanner, Field, Input, Sheet, Textarea } from '../ui'
 
-const MAX_FILE_BYTES = 200_000
+const FORM_ID = 'kb-add-form'
 
-/** Add a document to the knowledge base: paste text or load a .md/.txt file.
- * The server chunks and indexes it immediately, so the agent's search tool
- * can find it on its next call. */
-export function AddDocumentForm({
-  onAdded,
-  onCancel,
-}: {
-  onAdded: (doc: KBDocDetail) => void
-  onCancel: () => void
-}) {
+/** Add a document to the knowledge base in a sheet: paste text or load a
+ * .md/.txt file. The server chunks and indexes it immediately, so the agent's
+ * search tool can find it on its next call. Closing with unsaved text asks
+ * "Discard changes?" first. */
+export function AddDocumentSheet({ onAdded, onClose }: { onAdded: (doc: KBDocDetail) => void; onClose: () => void }) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const [touched, setTouched] = useState(false)
+  const [fileError, setFileError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const dirty = title.trim() !== '' || content.trim() !== ''
+  const contentError = fileError ?? (touched ? validateDocContent(content) : null)
+
+  const requestClose = () => {
+    if (saving) return
+    if (dirty) setConfirmingDiscard(true)
+    else onClose()
+  }
 
   const loadFile = async (file: File | undefined) => {
     if (!file) return
-    if (file.size > MAX_FILE_BYTES) {
-      setError(`That file is ${Math.round(file.size / 1000)} KB; the limit is ${MAX_FILE_BYTES / 1000} KB.`)
+    const tooBig = validateFileSize(file.size)
+    if (tooBig) {
+      setFileError(tooBig)
       return
     }
-    setError(null)
-    setContent(await file.text())
-    if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ''))
+    setFileError(null)
+    try {
+      setContent(await file.text())
+      if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ''))
+    } catch (err) {
+      setFileError(errorText(err, 'Could not read that file.'))
+    }
   }
 
   const submit = async () => {
+    setTouched(true)
+    if (saving || validateDocContent(content)) return
     setSaving(true)
     setError(null)
     try {
       onAdded(await api.createKbDoc({ title: title.trim() || undefined, content }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add the document.')
-    } finally {
+      setError(errorText(err, 'Failed to add the document.'))
       setSaving(false)
     }
   }
 
   return (
-    <div className="ui-card space-y-2.5 p-4" data-testid="kb-add-form">
-      {error && <ErrorBanner message={error} />}
-      <label className="block text-xs font-medium text-zinc-500">
-        Title (optional — defaults to the first heading)
-        <input
-          name="title"
-          autoComplete="off"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="mt-1 w-full rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
-        />
-      </label>
-      <label className="block text-xs font-medium text-zinc-500">
-        Content (markdown or plain text)
-        <textarea
-          name="content"
-          autoComplete="off"
-          spellCheck={false}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={8}
-          placeholder={'# Runbook: …\n\nWhat to check first, then the steps to fix it.'}
-          className="font-data mt-1 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
-        />
-      </label>
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          ref={fileRef}
-          name="file"
-          aria-label="Choose a markdown or text file"
-          type="file"
-          accept=".md,.markdown,.txt,text/markdown,text/plain"
-          className="hidden"
-          onChange={(e) => {
-            void loadFile(e.target.files?.[0])
-            e.target.value = ''
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="ui-btn ui-btn-secondary ui-btn-sm"
-        >
-          <UploadSimple size={14} weight="bold" />
-          Load a .md / .txt file
-        </button>
-        <span className="text-xs text-zinc-500">{content.length.toLocaleString()} characters</span>
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:border-zinc-300"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          disabled={saving || content.trim().length < 20}
-          onClick={() => void submit()}
-          className="ui-btn ui-btn-primary ui-btn-sm"
-        >
-          {saving ? 'Chunking & indexing…' : 'Add and index'}
-        </button>
-      </div>
-    </div>
+    <Sheet
+      open
+      onClose={requestClose}
+      eyebrow="Knowledge / Documents"
+      title="Add document"
+      width="lg"
+      footer={
+        confirmingDiscard ? (
+          <div className="w-full rounded-[14px] bg-white ring-1 ring-[var(--color-line)] [&>div]:w-full">
+            <ConfirmPanel title="Discard changes?" description="What you typed will be lost." confirmLabel="Discard" onConfirm={onClose} onCancel={() => setConfirmingDiscard(false)} />
+          </div>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={requestClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" form={FORM_ID} variant="primary" loading={saving}>
+              {saving ? 'Chunking and indexing' : 'Add and index'}
+            </Button>
+          </>
+        )
+      }
+    >
+      <form
+        id={FORM_ID}
+        data-testid="kb-add-form"
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void submit()
+        }}
+      >
+        {error && <ErrorBanner message={error} />}
+        <Field label="Title" optional hint="Defaults to the first heading in the content.">
+          {(field) => <Input {...field} name="title" autoComplete="off" maxLength={200} className="w-full" value={title} onChange={(e) => setTitle(e.target.value)} />}
+        </Field>
+        <Field label="Content" hint="Markdown or plain text. Paragraphs are merged into chunks of up to 800 characters." error={contentError}>
+          {(field) => (
+            <Textarea
+              {...field}
+              name="content"
+              autoComplete="off"
+              spellCheck={false}
+              rows={12}
+              value={content}
+              onChange={(e) => {
+                setContent(e.target.value)
+                setFileError(null)
+              }}
+              onBlur={() => setTouched(true)}
+              placeholder={'# Runbook: …\n\nWhat to check first, then the steps to fix it.'}
+              className="font-data w-full"
+            />
+          )}
+        </Field>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={fileRef}
+            name="file"
+            aria-label="Choose a markdown or text file"
+            type="file"
+            accept=".md,.markdown,.txt,text/markdown,text/plain"
+            className="hidden"
+            onChange={(e) => {
+              void loadFile(e.target.files?.[0])
+              e.target.value = ''
+            }}
+          />
+          <Button size="sm" icon={<UploadSimple size={14} weight="bold" />} onClick={() => fileRef.current?.click()}>
+            Load a .md or .txt file
+          </Button>
+          <span className="text-xs text-zinc-500 tabular-nums">{content.length.toLocaleString()} characters</span>
+        </div>
+      </form>
+    </Sheet>
   )
 }

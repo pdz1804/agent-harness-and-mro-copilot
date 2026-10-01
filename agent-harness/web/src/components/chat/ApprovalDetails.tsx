@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import type { ApprovalPreview, ApprovalPreviewWidget, DashboardWidget, WidgetQueryResult } from '../../lib/api-types'
 import { formatCell, isDashboardPreview, previewHeadline, widgetSummary } from '../../lib/approval-preview'
-import { Skeleton } from '../Skeleton'
+import { Skeleton } from '../ui/Skeleton'
 import { WidgetBody } from '../widgets/WidgetBody'
 
 const SEVERITY_STYLES: Record<string, string> = {

@@ -139,6 +139,10 @@ def test_flipping_service_status_genuinely_starts_a_real_automation_run():
     snapshot = _wait_for_run_terminal(new_run["run_id"])
     assert snapshot["status"] == "completed"
     assert snapshot["triggered_by_automation_id"] == automation_id
+    # The triggered run and its session carry the default agent, like a manual run.
+    default_agent_id = next(a["id"] for a in client.get("/api/v1/agents").json() if a["is_default"])
+    assert snapshot["agent_id"] == default_agent_id
+    assert client.get(f"/api/v1/sessions/{snapshot['session_id']}").json()["agent_id"] == default_agent_id
     # Real agent activity happened — not a simulated/logged-only trigger.
     event_types = [e["event_type"] for e in snapshot["history"]]
     assert "llm_decision" in event_types

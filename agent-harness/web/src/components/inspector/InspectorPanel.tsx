@@ -1,5 +1,5 @@
-import { Brain, CaretRight, Clock, Database, Sidebar as SidebarIcon, Wrench } from '@phosphor-icons/react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Sidebar as SidebarIcon } from '@phosphor-icons/react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocalStorageState } from '../../hooks/useLocalStorageState'
 import type { RunSnapshot } from '../../lib/api-types'
 import { ContextTab } from './ContextTab'
@@ -7,15 +7,17 @@ import { RawTab } from './RawTab'
 import { ReasoningTab } from './ReasoningTab'
 import { TimelineTab } from './TimelineTab'
 import { ToolsTab } from './ToolsTab'
+import { Button } from '../ui/Button'
+import { Segmented } from '../ui/Input'
 
 type TabId = 'timeline' | 'tools' | 'reasoning' | 'context' | 'raw'
 
-const TABS: { id: TabId; label: string; icon: ReactNode }[] = [
-  { id: 'timeline', label: 'Timeline', icon: <Clock size={14} weight="bold" /> },
-  { id: 'tools', label: 'Tools', icon: <Wrench size={14} weight="bold" /> },
-  { id: 'reasoning', label: 'Reasoning', icon: <Brain size={14} weight="bold" /> },
-  { id: 'context', label: 'Context', icon: <Database size={14} weight="bold" /> },
-  { id: 'raw', label: 'Raw', icon: <CaretRight size={14} weight="bold" /> },
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'tools', label: 'Tools' },
+  { id: 'reasoning', label: 'Reasoning' },
+  { id: 'context', label: 'Context' },
+  { id: 'raw', label: 'Raw' },
 ]
 
 const MIN_WIDTH = 320
@@ -81,34 +83,25 @@ export function InspectorPanel({ snapshot, open, onOpenChange, focusedToolCallKe
 
   const body = (
     <div className="flex h-full flex-col" style={{ width: isNarrow ? undefined : width }}>
-      <div
-        role="tablist"
-        aria-label="Run inspector"
-        className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--color-line)] px-2"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            className={`relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors duration-150 ${
-              tab === t.id ? 'bg-zinc-950/[0.06] text-zinc-950' : 'text-zinc-500 hover:bg-zinc-950/[0.035] hover:text-zinc-900'
-            }`}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-3">
+        <Segmented
+          label="Run inspector"
+          size="sm"
+          value={tab}
+          onChange={setTab}
+          className="min-w-0"
+          options={TABS.map((t) => ({ value: t.id, label: t.label }))}
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          className="ml-auto shrink-0"
+          icon={<SidebarIcon size={14} weight="bold" />}
           aria-label="Close inspector"
-          className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-900"
-        >
-          <SidebarIcon size={14} weight="bold" />
-        </button>
+          title="Close inspector (Ctrl+.)"
+          onClick={() => onOpenChange(false)}
+        />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {tab === 'timeline' && <TimelineTab events={snapshot.history} />}

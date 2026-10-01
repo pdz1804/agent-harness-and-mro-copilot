@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
-import { EmptyState } from './components/EmptyState'
-import { TimelineSkeleton } from './components/Skeleton'
+import { LinkButton } from './components/ui/Button'
+import { EmptyState } from './components/ui/EmptyState'
+import { TimelineSkeleton } from './components/ui/Skeleton'
 import { api } from './lib/api'
-import { AgentsPage } from './pages/AgentsPage'
+import { AgentEditorRoute, AgentsPage } from './pages/AgentsPage'
 import { AutomationsPage } from './pages/AutomationsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DashboardsPage } from './pages/DashboardsPage'
@@ -56,6 +57,11 @@ function SessionThreadRoute() {
         icon={<ChatsCircle size={22} weight="duotone" />}
         title="Session not found"
         description="It may have been deleted, or it belongs to another user."
+        action={
+          <LinkButton to="/sessions" variant="secondary">
+            View sessions
+          </LinkButton>
+        }
       />
     )
   }
@@ -77,7 +83,7 @@ function SessionThreadRoute() {
  *   /sessions/:sessionId/runs/:runId     one specific turn of a thread
  *   /runs/:runId                         run permalink → canonical session URL
  *   /dashboards[/:id]  /evals[/runs/:id]  /prompts[/:id]  /knowledge[/:docId]
- *   /incidents[/:id]  /memory  /services  /agents  /skills  /guardrails
+ *   /incidents[/:id]  /agents[/:id|new]  /memory  /services  /skills  /guardrails
  *   /automations  /logs  /settings/integrations
  *
  * Old links keep working: `/#/x` hash URLs are rewritten before the router
@@ -104,6 +110,7 @@ function App() {
           <Route path="/prompts/:promptId" element={<PromptLibraryPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agents/:agentId" element={<AgentEditorRoute />} />
           <Route path="/guardrails" element={<GuardrailsPage />} />
           <Route path="/automations" element={<AutomationsPage />} />
           <Route path="/dashboards" element={<DashboardsPage />} />

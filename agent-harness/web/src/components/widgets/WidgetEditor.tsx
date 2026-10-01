@@ -1,10 +1,21 @@
-import { useState } from 'react'
-import { X } from '@phosphor-icons/react'
-import { ApiError, api } from '../../lib/api'
+import { Play, Trash } from '@phosphor-icons/react'
+import { useMemo, useState } from 'react'
+import { api, errorText } from '../../lib/api'
 import { validateWidgetConfigClient } from '../../lib/widget-shapes'
 import type { DashboardWidget, WidgetConfig, WidgetKind, WidgetQueryResult } from '../../lib/api-types'
+import { Button, Chip, ConfirmPopover, ErrorBanner, Field, Input, Select, Sheet, SheetSection, Skeleton, Switch, Table, Textarea } from '../ui'
+import { DiscardBar } from './DiscardBar'
 
 const KINDS: WidgetKind[] = ['stat', 'line', 'bar', 'area', 'pie', 'table', 'list']
+const KIND_LABEL: Record<WidgetKind, string> = {
+  stat: 'Stat (one number)',
+  line: 'Line chart',
+  bar: 'Bar chart',
+  area: 'Area chart',
+  pie: 'Pie chart',
+  table: 'Table',
+  list: 'List',
+}
 const COL_SPANS = [3, 4, 6, 12] as const
 
 interface FormState {
@@ -20,316 +31,370 @@ function emptyForm(): FormState {
 }
 
 function toForm(widget: DashboardWidget): FormState {
-  return {
-    kind: widget.kind,
-    title: widget.title,
-    sql_query: widget.sql_query,
-    col_span: widget.col_span,
-    config: widget.config,
-  }
+  return { kind: widget.kind, title: widget.title, sql_query: widget.sql_query, col_span: widget.col_span, config: widget.config }
 }
 
-/** Widget create/edit drawer: kind picker, SQL editor, a config mapping
- * form specific to the chosen kind, and a "Test" button that calls
+type Touched = Partial<Record<'title' | 'sql', boolean>>
+
+/** Widget create/edit sheet: kind picker, SQL editor, a config mapping form
+ * specific to the chosen kind, and a "Run preview" button that calls
  * `POST /queries/preview` (runs the query for real against the live
- * database, validated the same way a saved widget's query would be, but
- * persists nothing) so the author can see real columns/rows and a
- * rendered shape-check result before saving. */
+ * database, validated like a saved widget's query, persisting nothing) so the
+ * author sees real columns and rows before saving. Closing with unsaved edits
+ * asks first. */
 export function WidgetEditor({
   dashboardId,
+  dashboardName,
   widget,
+  position,
+  canWrite,
+  writeReason,
   onClose,
+  onPrev,
+  onNext,
   onSaved,
+  onDelete,
 }: {
   dashboardId: string
+  dashboardName: string
   widget: DashboardWidget | null
+  /** "widget 2 of 5" facts for an existing widget. */
+  position?: { index: number; total: number }
+  canWrite: boolean
+  writeReason?: string
   onClose: () => void
-  onSaved: () => void
+  onPrev?: () => void
+  onNext?: () => void
+  /** Called after a successful save with the stored widget and its previous version (null when created). */
+  onSaved: (saved: DashboardWidget, previous: DashboardWidget | null) => void
+  onDelete?: (widget: DashboardWidget) => void
 }) {
-  const [form, setForm] = useState<FormState>(widget ? toForm(widget) : emptyForm())
+  const initial = useMemo(() => (widget ? toForm(widget) : emptyForm()), [widget])
+  const [form, setForm] = useState<FormState>(initial)
+  const [touched, setTouched] = useState<Touched>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<WidgetQueryResult | null>(null)
   const [testError, setTestError] = useState<string | null>(null)
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const isNew = widget === null
 
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial)
   const setConfig = (patch: Partial<WidgetConfig>) => setForm((f) => ({ ...f, config: { ...f.config, ...patch } }))
   const configError = validateWidgetConfigClient(form.kind, form.config)
+  const titleError = !form.title.trim() ? 'Give the widget a title.' : null
+  const sqlError = !form.sql_query.trim() ? 'Enter a read-only SELECT query.' : null
+
+  const requestClose = () => {
+    if (dirty && !saving) setConfirmingDiscard(true)
+    else onClose()
+  }
 
   const handleTest = async () => {
     setTesting(true)
     setTestError(null)
     setTestResult(null)
     try {
-      const result = await api.previewQuery({ sql_query: form.sql_query, kind: form.kind, config: form.config })
-      setTestResult(result)
+      setTestResult(await api.previewQuery({ sql_query: form.sql_query, kind: form.kind, config: form.config }))
     } catch (err) {
-      setTestError(err instanceof ApiError ? err.message : 'Failed to run query.')
+      setTestError(errorText(err, 'Could not run the query.'))
     } finally {
       setTesting(false)
     }
   }
 
   const handleSave = async () => {
+    setTouched({ title: true, sql: true })
+    if (titleError || sqlError || configError) return
     setSaving(true)
     setError(null)
     try {
-      if (isNew) {
-        await api.createWidget(dashboardId, {
-          kind: form.kind,
-          title: form.title.trim(),
-          sql_query: form.sql_query.trim(),
-          config: form.config,
-          col_span: form.col_span,
-        })
-      } else {
-        await api.updateWidget(dashboardId, widget.id, {
-          title: form.title.trim(),
-          sql_query: form.sql_query.trim(),
-          config: form.config,
-          col_span: form.col_span,
-        })
-      }
-      onSaved()
+      const body = { title: form.title.trim(), sql_query: form.sql_query.trim(), config: form.config, col_span: form.col_span }
+      const saved = isNew ? await api.createWidget(dashboardId, { kind: form.kind, ...body }) : await api.updateWidget(dashboardId, widget.id, body)
+      onSaved(saved, widget)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save widget.')
+      setError(errorText(err, 'Could not save the widget.'))
     } finally {
       setSaving(false)
     }
   }
 
+  const disabledTitle = canWrite ? undefined : writeReason
+  const title = isNew ? 'New widget' : 'Edit widget'
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-zinc-900/40">
-      <div className="flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-zinc-900">{isNew ? 'New widget' : `Edit ${widget.title}`}</h2>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100" aria-label="Close">
-            <X size={16} weight="bold" />
-          </button>
-        </div>
-
-        <div className="flex-1 space-y-4 px-5 py-4">
-          {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{error}</p>}
-
-          <label className="block text-xs font-medium text-zinc-600">
-            Title
-            <input name="widget-title" autoComplete="off"
-              type="text"
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-              className="mt-1 w-full rounded-md border border-zinc-200 px-2.5 py-1.5 text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-            />
-          </label>
-
-          <div className="flex items-center gap-4">
-            <label className="block text-xs font-medium text-zinc-600">
-              Kind
-              <select name="widget-kind"
-                value={form.kind}
-                disabled={!isNew}
-                onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as WidgetKind }))}
-                className="mt-1 block rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:opacity-60"
-              >
-                {KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-xs font-medium text-zinc-600">
-              Width
-              <select name="widget-width"
-                value={form.col_span}
-                onChange={(e) => setForm((f) => ({ ...f, col_span: Number(e.target.value) as FormState['col_span'] }))}
-                className="mt-1 block rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-              >
-                {COL_SPANS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}/12
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="block text-xs font-medium text-zinc-600">
-            SQL query (read-only SELECT only)
-            <textarea name="widget-sql" autoComplete="off"
-              value={form.sql_query}
-              onChange={(e) => setForm((f) => ({ ...f, sql_query: e.target.value }))}
-              rows={5}
-              placeholder="SELECT status, count(*) AS n FROM services GROUP BY status…"
-              className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 font-data text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-            />
-            <span className="mt-1 block text-xs text-zinc-500">
-              Write/DDL keywords and multiple statements are rejected; execution is timeout- and row-capped.
-            </span>
-          </label>
-
-          <ConfigFields kind={form.kind} config={form.config} onChange={setConfig} />
-          {configError && <p className="text-xs font-medium text-amber-600">{configError}</p>}
-
-          <div>
-            <button
-              type="button"
-              onClick={() => void handleTest()}
-              disabled={testing || !form.sql_query.trim() || !!configError}
-              className="ui-btn ui-btn-secondary ui-btn-sm"
+    <Sheet
+      open
+      onClose={requestClose}
+      onPrev={dirty ? undefined : onPrev}
+      onNext={dirty ? undefined : onNext}
+      width="lg"
+      eyebrow={`Dashboards / ${dashboardName}`}
+      title={title}
+      status={dirty ? <Chip tone="warn" dot>Unsaved changes</Chip> : undefined}
+      meta={
+        position ? (
+          <span>
+            {widget?.title} · widget {position.index + 1} of {position.total}
+          </span>
+        ) : (
+          <span>Runs a stored read-only query each time it refreshes.</span>
+        )
+      }
+      footer={
+        <>
+          {!isNew && onDelete && (
+            <ConfirmPopover
+              size="md"
+              icon={<Trash size={14} />}
+              prompt={`Delete widget “${widget.title}”?`}
+              description="You can undo for a few seconds."
+              confirmLabel="Delete widget"
+              disabled={!canWrite}
+              title={disabledTitle}
+              align="start"
+              className="mr-auto"
+              onConfirm={() => onDelete(widget)}
             >
-              {testing ? 'Testing…' : 'Test query'}
-            </button>
-            {testError && <p className="mt-2 text-xs font-medium text-rose-600">{testError}</p>}
-            {testResult && (
-              <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-zinc-200">
-                <table className="ui-table">
-                  <thead>
-                    <tr>
-                      {testResult.columns.map((c) => (
-                        <th key={c} className="px-2 py-1.5 whitespace-nowrap">
-                          {c}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100">
-                    {testResult.rows.slice(0, 20).map((row, i) => (
-                      <tr key={i}>
-                        {testResult.columns.map((c) => (
-                          <td key={c} className="px-2 py-1 font-data whitespace-nowrap text-zinc-800">
-                            {String(row[c] ?? '')}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              Delete widget
+            </ConfirmPopover>
+          )}
+          <Button variant="ghost" onClick={requestClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={saving} disabled={!canWrite} title={disabledTitle} onClick={() => void handleSave()}>
+            {isNew ? 'Create widget' : 'Save widget'}
+          </Button>
+        </>
+      }
+    >
+      {confirmingDiscard && <DiscardBar onKeep={() => setConfirmingDiscard(false)} onDiscard={onClose} />}
+      {!canWrite && <p className="mb-4 rounded-[10px] bg-amber-50 px-3 py-2 text-xs text-amber-800">{writeReason} You can look at this widget but not change it.</p>}
+      {error && (
+        <div className="mb-4">
+          <ErrorBanner message={error} />
+        </div>
+      )}
+
+      <SheetSection title="Basics">
+        <div className="space-y-3">
+          <Field label="Title" error={touched.title ? titleError : null}>
+            {(p) => (
+              <Input
+                {...p}
+                name="widget-title"
+                autoComplete="off"
+                value={form.title}
+                disabled={!canWrite}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                onBlur={() => setTouched((t) => ({ ...t, title: true }))}
+                className="w-full"
+              />
             )}
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Type" hint={isNew ? undefined : 'A widget keeps its type once created.'}>
+              {(p) => (
+                <Select {...p} name="widget-kind" value={form.kind} disabled={!isNew || !canWrite} onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as WidgetKind }))} className="w-full">
+                  {KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {KIND_LABEL[k]}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Width">
+              {(p) => (
+                <Select
+                  {...p}
+                  name="widget-width"
+                  value={form.col_span}
+                  disabled={!canWrite}
+                  onChange={(e) => setForm((f) => ({ ...f, col_span: Number(e.target.value) as FormState['col_span'] }))}
+                  className="w-full"
+                >
+                  {COL_SPANS.map((c) => (
+                    <option key={c} value={c}>
+                      {c} of 12 columns
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
           </div>
         </div>
+      </SheetSection>
 
-        <div className="flex items-center justify-end border-t border-zinc-200 px-5 py-3">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving || !form.title.trim() || !form.sql_query.trim() || !!configError}
-            className="ui-btn ui-btn-primary ui-btn-sm"
-          >
-            {saving ? 'Saving…' : isNew ? 'Create widget' : 'Save changes'}
-          </button>
+      <SheetSection title="Query">
+        <Field
+          label="SQL (read-only)"
+          error={touched.sql ? sqlError : null}
+          hint="One SELECT statement. Write and DDL keywords are rejected; execution is timeout- and row-capped."
+        >
+          {(p) => (
+            <Textarea
+              {...p}
+              name="widget-sql"
+              autoComplete="off"
+              spellCheck={false}
+              rows={5}
+              value={form.sql_query}
+              disabled={!canWrite}
+              placeholder="SELECT status, count(*) AS n FROM services GROUP BY status"
+              onChange={(e) => setForm((f) => ({ ...f, sql_query: e.target.value }))}
+              onBlur={() => setTouched((t) => ({ ...t, sql: true }))}
+              className="font-data !h-auto w-full resize-y py-2 text-[13px] leading-5"
+            />
+          )}
+        </Field>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" icon={<Play size={12} weight="fill" />} loading={testing} disabled={!form.sql_query.trim() || !!configError} onClick={() => void handleTest()}>
+            Run preview
+          </Button>
+          {testResult && !testing && (
+            <>
+              <Chip tone="ok" dot>
+                Query passed
+              </Chip>
+              <span className="text-xs text-zinc-500 tabular-nums">
+                {testResult.rows.length} row{testResult.rows.length === 1 ? '' : 's'}
+                {testResult.truncated ? ' (truncated)' : ''}
+              </span>
+            </>
+          )}
         </div>
-      </div>
-    </div>
+        {testing && <Skeleton className="h-24 w-full" />}
+        {testError && !testing && (
+          <p role="alert" className="rounded-[10px] bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 [overflow-wrap:anywhere]">
+            {testError}
+          </p>
+        )}
+        {testResult && !testing && (
+          <Table label="Query preview" className="max-h-56 overflow-auto">
+            <thead>
+              <tr>
+                {testResult.columns.map((c) => (
+                  <th key={c} className="whitespace-nowrap">
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {testResult.rows.slice(0, 20).map((row, i) => (
+                <tr key={i}>
+                  {testResult.columns.map((c) => (
+                    <td key={c} className="font-data whitespace-nowrap text-zinc-800">
+                      {String(row[c] ?? '')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </SheetSection>
+
+      <SheetSection title="Display">
+        <ConfigFields kind={form.kind} config={form.config} disabled={!canWrite} onChange={setConfig} />
+        {configError && <p className="text-xs font-medium text-amber-700">{configError}</p>}
+      </SheetSection>
+    </Sheet>
   )
 }
 
-function textField(label: string, value: string, onChange: (v: string) => void, placeholder?: string) {
+function ColumnField({ label, value, onChange, placeholder, disabled, optional }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled: boolean; optional?: boolean }) {
   return (
-    <label className="block text-xs font-medium text-zinc-600">
-      {label}
-      <input name="widget-config-field" autoComplete="off"
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="mt-1 w-full rounded-md border border-zinc-200 px-2.5 py-1.5 text-sm font-data focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-      />
-    </label>
+    <Field label={label} optional={optional}>
+      {(p) => <Input {...p} name="widget-config-field" autoComplete="off" value={value} disabled={disabled} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="font-data w-full" />}
+    </Field>
   )
 }
 
-/** The config sub-form varies by `kind` — mirrors `agent_harness.widget_config`'s
- * per-kind Pydantic model field-for-field. */
-function ConfigFields({
-  kind,
-  config,
-  onChange,
-}: {
-  kind: WidgetKind
-  config: WidgetConfig
-  onChange: (patch: Partial<WidgetConfig>) => void
-}) {
+/** The config sub-form varies by `kind`: it mirrors `agent_harness.widget_config`'s
+ * per-kind Pydantic model field for field. */
+function ConfigFields({ kind, config, disabled, onChange }: { kind: WidgetKind; config: WidgetConfig; disabled: boolean; onChange: (patch: Partial<WidgetConfig>) => void }) {
   if (kind === 'stat') {
     return (
-      <div className="space-y-3 rounded-md bg-zinc-50 p-3">
-        {textField('Value column', config.value_col ?? '', (v) => onChange({ value_col: v }), 'value')}
-        <label className="block text-xs font-medium text-zinc-600">
-          Format
-          <select name="widget-format"
-            value={config.format ?? 'number'}
-            onChange={(e) => onChange({ format: e.target.value as WidgetConfig['format'] })}
-            className="mt-1 block rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-          >
-            <option value="number">number</option>
-            <option value="percent">percent</option>
-            <option value="duration_ms">duration_ms</option>
-            <option value="currency">currency</option>
-          </select>
-        </label>
-        {textField('Delta column (optional)', config.delta_col ?? '', (v) => onChange({ delta_col: v || null }))}
+      <div className="space-y-3">
+        <ColumnField label="Value column" value={config.value_col ?? ''} onChange={(v) => onChange({ value_col: v })} placeholder="value" disabled={disabled} />
+        <Field label="Format">
+          {(p) => (
+            <Select {...p} name="widget-format" value={config.format ?? 'number'} disabled={disabled} onChange={(e) => onChange({ format: e.target.value as WidgetConfig['format'] })} className="w-full">
+              <option value="number">Number</option>
+              <option value="percent">Percent</option>
+              <option value="duration_ms">Duration (ms)</option>
+              <option value="currency">Currency</option>
+            </Select>
+          )}
+        </Field>
+        <ColumnField label="Delta column" optional value={config.delta_col ?? ''} onChange={(v) => onChange({ delta_col: v || null })} disabled={disabled} />
       </div>
     )
   }
   if (kind === 'line' || kind === 'bar' || kind === 'area') {
     return (
-      <div className="space-y-3 rounded-md bg-zinc-50 p-3">
-        {textField('X column', config.x_col ?? '', (v) => onChange({ x_col: v }), 'day')}
-        {textField(
-          'Y columns (comma-separated)',
-          (config.y_cols ?? []).join(', '),
-          (v) => onChange({ y_cols: v.split(',').map((s) => s.trim()).filter(Boolean) }),
-          'n, tokens',
-        )}
-        <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-600">
-          <input name="widget-stacked"
-            type="checkbox"
-            checked={!!config.stacked}
-            onChange={(e) => onChange({ stacked: e.target.checked })}
-            className="h-3.5 w-3.5 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
-          />
+      <div className="space-y-3">
+        <ColumnField label="X column" value={config.x_col ?? ''} onChange={(v) => onChange({ x_col: v })} placeholder="day" disabled={disabled} />
+        <ColumnField
+          label="Y columns"
+          value={(config.y_cols ?? []).join(', ')}
+          onChange={(v) => onChange({ y_cols: v.split(',').map((s) => s.trim()).filter(Boolean) })}
+          placeholder="n, tokens"
+          disabled={disabled}
+        />
+        <div className="flex items-center gap-2 text-[13px] text-zinc-800">
+          <Switch label="Stacked" checked={!!config.stacked} disabled={disabled} onChange={(next) => onChange({ stacked: next })} />
           Stacked
-        </label>
+        </div>
       </div>
     )
   }
   if (kind === 'pie') {
     return (
-      <div className="space-y-3 rounded-md bg-zinc-50 p-3">
-        {textField('Label column', config.label_col ?? '', (v) => onChange({ label_col: v }), 'label')}
-        {textField('Value column', config.value_col ?? '', (v) => onChange({ value_col: v }), 'n')}
+      <div className="space-y-3">
+        <ColumnField label="Label column" value={config.label_col ?? ''} onChange={(v) => onChange({ label_col: v })} placeholder="label" disabled={disabled} />
+        <ColumnField label="Value column" value={config.value_col ?? ''} onChange={(v) => onChange({ value_col: v })} placeholder="n" disabled={disabled} />
       </div>
     )
   }
   if (kind === 'table') {
     return (
-      <div className="space-y-3 rounded-md bg-zinc-50 p-3">
-        {textField(
-          'Columns (optional, comma-separated — blank = all)',
-          (config.columns ?? []).join(', '),
-          (v) => onChange({ columns: v.trim() ? v.split(',').map((s) => s.trim()) : null }),
-        )}
-        <label className="block text-xs font-medium text-zinc-600">
-          Page size
-          <input name="widget-page-size" autoComplete="off"
-            type="number"
-            min={1}
-            max={500}
-            value={config.page_size ?? 20}
-            onChange={(e) => onChange({ page_size: Number(e.target.value) })}
-            className="mt-1 w-24 rounded-md border border-zinc-200 px-2 py-1 text-xs focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-          />
-        </label>
+      <div className="space-y-3">
+        <ColumnField
+          label="Columns"
+          optional
+          value={(config.columns ?? []).join(', ')}
+          onChange={(v) => onChange({ columns: v.trim() ? v.split(',').map((s) => s.trim()) : null })}
+          placeholder="Blank shows every column"
+          disabled={disabled}
+        />
+        <Field label="Page size" hint="Between 1 and 500 rows.">
+          {(p) => (
+            <Input
+              {...p}
+              name="widget-page-size"
+              autoComplete="off"
+              type="number"
+              min={1}
+              max={500}
+              value={config.page_size ?? 20}
+              disabled={disabled}
+              onChange={(e) => onChange({ page_size: Number(e.target.value) })}
+              className="w-28 tabular-nums"
+            />
+          )}
+        </Field>
       </div>
     )
   }
-  // list
   return (
-    <div className="space-y-3 rounded-md bg-zinc-50 p-3">
-      {textField('Title column', config.title_col ?? '', (v) => onChange({ title_col: v }), 'title')}
-      {textField('Subtitle column (optional)', config.subtitle_col ?? '', (v) => onChange({ subtitle_col: v || null }))}
-      {textField('Badge column (optional)', config.badge_col ?? '', (v) => onChange({ badge_col: v || null }))}
+    <div className="space-y-3">
+      <ColumnField label="Title column" value={config.title_col ?? ''} onChange={(v) => onChange({ title_col: v })} placeholder="title" disabled={disabled} />
+      <ColumnField label="Subtitle column" optional value={config.subtitle_col ?? ''} onChange={(v) => onChange({ subtitle_col: v || null })} disabled={disabled} />
+      <ColumnField label="Badge column" optional value={config.badge_col ?? ''} onChange={(v) => onChange({ badge_col: v || null })} disabled={disabled} />
     </div>
   )
 }

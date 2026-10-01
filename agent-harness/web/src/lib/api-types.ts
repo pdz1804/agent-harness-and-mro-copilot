@@ -314,6 +314,10 @@ export interface KBRetrieveResult {
   effective_mode: string
   dense_available: boolean
   hits: KBRetrievedChunk[]
+  /** Server-side ranking time, ms. */
+  latency_ms: number
+  /** Chunks the query was ranked against. */
+  indexed_chunks: number
 }
 
 export interface KBReindexResult {

@@ -1,474 +1,370 @@
-import {
-  ArrowClockwise,
-  Lightning,
-  MagnifyingGlass,
-  PlusCircle,
-  Trash,
-  Wrench,
-  X,
-} from '@phosphor-icons/react'
-import { useEffect, useMemo, useState } from 'react'
-import { EmptyState } from '../components/EmptyState'
-import { ErrorBanner } from '../components/ErrorBanner'
-import { Skeleton } from '../components/Skeleton'
+import { ArrowsClockwise, Lock, PencilSimple, PlusCircle, ShareNetwork, Wrench } from '@phosphor-icons/react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { ForbiddenState } from '../components/prompts/ForbiddenState'
 import { RoutingTester } from '../components/skills/RoutingTester'
-import { PageHeader } from '../components/ui/PageHeader'
-import { ToolPicker } from '../components/ui/ToolPicker'
-import { VisibilityBadge } from '../components/ui/VisibilityBadge'
+import { SkillDetailSheet } from '../components/skills/SkillDetailSheet'
+import { SkillFormSheet } from '../components/skills/SkillFormSheet'
+import {
+  Button,
+  Card,
+  CardGridSkeleton,
+  Chip,
+  EmptyState,
+  ErrorState,
+  FilteredEmpty,
+  PageHeader,
+  SearchInput,
+  Segmented,
+  Sheet,
+  Switch,
+  useToast,
+} from '../components/ui'
 import { canWriteResource, disabledReason, useMe } from '../hooks/useMe'
-import { ApiError, api } from '../lib/api'
+import { useClearUrlParams, useUrlEnum, useUrlState } from '../hooks/useUrlState'
+import { api, errorText } from '../lib/api'
 import { getCurrentUserId } from '../lib/identity'
 import type { Skill, ToolCatalogEntry } from '../lib/api-types'
-import { ConfirmButton } from '../components/ui/ConfirmButton'
+import { isForbidden } from '../lib/prompts-access'
+import { filterSkills, type EnabledFilter } from '../lib/skills-form'
 
-function formatTimestamp(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
+const TABS = ['skills', 'routing'] as const
+type Tab = (typeof TABS)[number]
+const ENABLED_VALUES = ['all', 'enabled', 'disabled'] as const
+const FILTER_KEYS = ['q', 'enabled']
+const MAX_CARD_TOOLS = 4
 
-interface SkillFormState {
-  slug: string
-  name: string
-  description: string
-  instructions: string
-  allowed_tools: string[]
-  examples: string
-  visibility: 'private' | 'shared'
-  enabled: boolean
-}
-
-const EMPTY_FORM: SkillFormState = {
-  slug: '',
-  name: '',
-  description: '',
-  instructions: '',
-  allowed_tools: [],
-  examples: '',
-  visibility: 'private',
-  enabled: true,
-}
-
-function toFormState(skill: Skill): SkillFormState {
-  return {
-    slug: skill.slug,
-    name: skill.name,
-    description: skill.description,
-    instructions: skill.instructions,
-    allowed_tools: skill.allowed_tools,
-    examples: skill.examples.join('\n'),
-    visibility: skill.visibility,
-    enabled: skill.enabled,
-  }
-}
-
-/** Skills (phase 03): a reusable capability package — instructions +
- * `allowed_tools` (a subset of the tool registry) + a description that is
- * the routing signal phase 04's skill auto-discover / slash commands will
- * read. Not versioned (unlike prompts) — editing just updates the row in
- * place, `updated_at`/`updated_by` track the last edit. */
+/** Skills: reusable capability packages (instructions plus a scoped tool set).
+ * Tabs (skills / routing tester), search, the enabled filter and the open
+ * skill live in the URL. Every mutation toasts with Undo: enable <-> disable,
+ * delete -> restore, create -> delete, edit -> the previous values. */
 export function SkillsPage() {
+  const navigate = useNavigate()
+  const toast = useToast()
+  const { me, loading: meLoading } = useMe()
+  const [tab, setTab] = useUrlEnum<Tab>('tab', TABS, 'skills')
+  const [q, setQ] = useUrlState('q')
+  const [enabledFilter, setEnabledFilter] = useUrlEnum<EnabledFilter>('enabled', ENABLED_VALUES, 'all')
+  const [openId, setOpenId] = useUrlState('open')
+  const [objective] = useUrlState('objective')
+  const clearParams = useClearUrlParams()
+
   const [skills, setSkills] = useState<Skill[] | null>(null)
-  const [tools, setTools] = useState<ToolCatalogEntry[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
+  const [tools, setTools] = useState<ToolCatalogEntry[]>([])
+  const [error, setError] = useState<unknown>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [editing, setEditing] = useState<Skill | 'new' | null>(null)
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set())
+
+  const reload = useCallback(() => setRefreshToken((n) => n + 1), [])
 
   useEffect(() => {
     let cancelled = false
-    setError(null)
-    Promise.all([api.listSkills(), api.listTools()])
-      .then(([skillData, toolData]) => {
+    Promise.all([api.listSkills(), api.listTools()]).then(
+      ([skillData, toolData]) => {
         if (cancelled) return
         setSkills(skillData)
         setTools(toolData)
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setError(err instanceof ApiError ? err.message : 'Failed to load skills.')
-      })
+        setError(null)
+      },
+      (err: unknown) => {
+        if (!cancelled) setError(err)
+      },
+    )
     return () => {
       cancelled = true
     }
   }, [refreshToken])
 
-  const filtered = useMemo(() => {
-    if (!skills) return null
-    const q = query.trim().toLowerCase()
-    if (!q) return skills
-    return skills.filter(
-      (s) =>
-        s.slug.toLowerCase().includes(q) ||
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q),
-    )
-  }, [skills, query])
-
-  const refresh = () => setRefreshToken((n) => n + 1)
-
   const currentUserId = getCurrentUserId()
-  const { me } = useMe()
-  const canCreate = me ? me.permissions.includes('mutate_skills') : true
+  const hasMutate = me ? me.permissions.includes('mutate_skills') : true
+  const createReason = hasMutate ? undefined : disabledReason(me, 'mutate_skills')
+  const canWriteSkill = (s: Skill) => hasMutate && canWriteResource(me, s)
+  const writeReasonFor = (s: Skill) => (!hasMutate ? disabledReason(me, 'mutate_skills') : canWriteResource(me, s) ? '' : `Only the owner (${s.owner_id}) or an admin can edit this skill.`)
+
+  const rows = useMemo(() => filterSkills(skills ?? [], q, enabledFilter), [skills, q, enabledFilter])
+  const active = q !== '' || enabledFilter !== 'all'
+  const clearFilters = () => clearParams(FILTER_KEYS)
+
+  const openSkill = skills?.find((s) => s.id === openId) ?? null
+  const openIndex = rows.findIndex((s) => s.id === openId)
+  const step = (delta: 1 | -1) => {
+    if (!rows.length) return
+    setOpenId(rows[(Math.max(0, openIndex) + delta + rows.length) % rows.length].id)
+  }
+
+  const markBusy = (id: string, on: boolean) =>
+    setBusyIds((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+
+  /** Flip `enabled` optimistically; Undo flips it back. */
+  const setEnabled = async (skill: Skill, enabled: boolean) => {
+    const apply = (value: boolean) => setSkills((list) => list && list.map((s) => (s.id === skill.id ? { ...s, enabled: value } : s)))
+    apply(enabled)
+    markBusy(skill.id, true)
+    try {
+      await api.updateSkill(skill.id, { enabled })
+      toast({
+        title: `${enabled ? 'Enabled' : 'Disabled'} “${skill.name}”`,
+        action: {
+          label: 'Undo',
+          run: async () => {
+            await api.updateSkill(skill.id, { enabled: !enabled })
+            reload()
+          },
+        },
+      })
+    } catch (err) {
+      apply(!enabled)
+      toast({ tone: 'error', title: `Couldn't ${enabled ? 'enable' : 'disable'} “${skill.name}”`, description: errorText(err, 'Try again.') })
+    } finally {
+      markBusy(skill.id, false)
+    }
+  }
+
+  const remove = async (skill: Skill) => {
+    try {
+      await api.deleteSkill(skill.id)
+    } catch (err) {
+      toast({ tone: 'error', title: `Couldn't delete “${skill.name}”`, description: errorText(err, 'Try again.') })
+      return
+    }
+    if (openId === skill.id) setOpenId('')
+    reload()
+    toast({
+      title: `Deleted “${skill.name}”`,
+      description: 'Kept in the trash for a while.',
+      action: {
+        label: 'Undo',
+        run: async () => {
+          await api.restoreSkill(skill.id)
+          reload()
+          toast({ title: 'Delete undone' })
+        },
+      },
+    })
+  }
+
+  const saved = (next: Skill, previous: Skill | null) => {
+    setEditing(null)
+    reload()
+    if (!previous) {
+      setOpenId(next.id)
+      toast({
+        title: `Created “${next.name}”`,
+        action: {
+          label: 'Undo',
+          run: async () => {
+            await api.deleteSkill(next.id)
+            setOpenId('')
+            reload()
+            toast({ title: 'Creation undone' })
+          },
+        },
+      })
+      return
+    }
+    toast({
+      title: `Saved “${next.name}”`,
+      action: {
+        label: 'Undo',
+        run: async () => {
+          await api.updateSkill(previous.id, {
+            name: previous.name,
+            description: previous.description,
+            instructions: previous.instructions,
+            allowed_tools: previous.allowed_tools,
+            examples: previous.examples,
+            visibility: previous.visibility,
+            enabled: previous.enabled,
+          })
+          reload()
+          toast({ title: 'Edit undone' })
+        },
+      },
+    })
+  }
+
+  const testRouting = (text: string) => navigate(`/skills?tab=routing&objective=${encodeURIComponent(text)}`)
+
+  const newSkillButton = (
+    <Button variant="primary" icon={<PlusCircle size={14} weight="bold" />} disabled={!hasMutate} title={createReason} onClick={() => setEditing('new')}>
+      New skill
+    </Button>
+  )
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Skills"
-        description="Reusable capability packages: instructions plus a scoped subset of tools. Used to route and scope an agent's behavior for a class of objective."
+        description="Reusable instructions plus an allowed tool set. The router picks one per objective, or an agent pins its own."
         actions={
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <Button icon={<ArrowsClockwise size={14} weight="bold" />} onClick={reload}>
+                Refresh
+              </Button>
+              {newSkillButton}
+            </div>
+            {createReason && !meLoading && <span className="max-w-xs text-right text-xs text-zinc-500">{createReason}</span>}
+          </div>
+        }
+        toolbar={
           <>
-            <button type="button" onClick={refresh} className="ui-btn ui-btn-secondary">
-              <ArrowClockwise size={14} weight="bold" aria-hidden="true" />
-              Refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing('new')}
-              disabled={!canCreate}
-              title={canCreate ? undefined : disabledReason(me, 'mutate_skills')}
-              className="ui-btn ui-btn-primary"
-            >
-              <PlusCircle size={14} weight="bold" aria-hidden="true" />
-              New skill
-            </button>
+            <Segmented
+              label="Skills view"
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'skills', label: 'Skills', count: skills?.length },
+                { value: 'routing', label: 'Routing tester' },
+              ]}
+            />
+            {tab === 'skills' && (
+              <>
+                <SearchInput label="Search skills" placeholder="Search name, slug, description" value={q} onValueChange={setQ} className="w-full sm:w-64" />
+                <Segmented
+                  label="Enabled"
+                  value={enabledFilter}
+                  onChange={setEnabledFilter}
+                  options={[
+                    { value: 'all', label: 'All' },
+                    { value: 'enabled', label: 'Enabled' },
+                    { value: 'disabled', label: 'Disabled' },
+                  ]}
+                />
+                {active && (
+                  <Button variant="ghost" size="sm" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                )}
+              </>
+            )}
           </>
         }
       />
 
-      <RoutingTester skills={skills} />
-
-      <div className="mt-4 flex items-center gap-2">
-        <div className="relative max-w-sm flex-1">
-          <MagnifyingGlass size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-zinc-500" aria-hidden="true" />
-          <input
-            type="text"
-            name="skill-search"
-            autoComplete="off"
-            aria-label="Search skills"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search skills…"
-            className="ui-input w-full pl-8"
-          />
-        </div>
-      </div>
-
-      <div className="mt-4">
-        {error && <ErrorBanner message={error} onRetry={refresh} />}
-
-        {!error && filtered === null ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-40 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : filtered && filtered.length > 0 ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((skill) => (
-              <button
-                key={skill.id}
-                type="button"
-                onClick={() => setEditing(skill)}
-                className="ui-card flex flex-col items-start gap-2 p-4 text-left transition hover:border-sky-300 hover:shadow-sm"
-              >
-                <div className="flex w-full items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-zinc-900">{skill.name}</p>
-                    <p className="font-data text-xs text-sky-700">/{skill.slug}</p>
-                  </div>
-                  <VisibilityBadge visibility={skill.visibility} className="mt-1" />
-                </div>
-                <p className="line-clamp-2 text-xs text-zinc-500">{skill.description}</p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {skill.allowed_tools.map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600"
-                    >
-                      <Wrench size={9} />
-                      {t}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-auto flex w-full items-center justify-between pt-1 text-xs text-zinc-500">
-                  <span>{skill.owner_id === currentUserId ? 'You' : skill.owner_id}</span>
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium ${
-                      skill.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-200 text-zinc-500'
-                    }`}
-                  >
-                    <Lightning size={9} weight="fill" />
-                    {skill.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
+      {tab === 'routing' ? (
+        <RoutingTester key={objective} skills={skills} initialObjective={objective} />
+      ) : error && skills === null ? (
+        isForbidden(error) ? (
+          <ForbiddenState what="skills" backTo="/sessions" backLabel="Back to sessions" />
         ) : (
-          !error && (
-            <EmptyState
-              icon={<Wrench size={28} />}
-              title="No skills found"
-              description="Create a skill to scope an agent's tools and instructions for a class of objective."
-              action={
-                <button
-                  type="button"
-                  onClick={() => setEditing('new')}
-                  disabled={!canCreate}
-                  title={canCreate ? undefined : disabledReason(me, 'mutate_skills')}
-                  className="ui-btn ui-btn-primary"
-                >
-                  <PlusCircle size={14} weight="bold" aria-hidden="true" />
-                  New skill
-                </button>
-              }
-            />
-          )
-        )}
-      </div>
+          <ErrorState message={`${errorText(error, 'Could not load skills.')} Check that the backend is running.`} onRetry={reload} />
+        )
+      ) : skills === null ? (
+        <CardGridSkeleton count={6} />
+      ) : rows.length === 0 ? (
+        active ? (
+          <FilteredEmpty query={q || undefined} what="skills" onClear={clearFilters} />
+        ) : (
+          <EmptyState
+            icon={<Wrench size={22} weight="duotone" />}
+            title="No skills yet"
+            description="A skill scopes an agent's tools and instructions for a class of objective, and becomes a /slug command in chat."
+            action={newSkillButton}
+            example="Try: slug “triage-outage” with get_service_status and search_knowledge_base."
+          />
+        )
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {rows.map((skill) => {
+            const writable = canWriteSkill(skill)
+            const reason = writeReasonFor(skill)
+            return (
+              <li key={skill.id} className="contents">
+                <Card className="relative flex flex-col gap-2" interactive selected={skill.id === openId} onClick={() => setOpenId(skill.id)}>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-data truncate text-xs text-sky-700">/{skill.slug}</p>
+                    <span className="relative z-10 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      {skill.visibility === 'private' ? <Lock size={12} className="text-zinc-500" aria-label="Private" /> : <ShareNetwork size={12} className="text-zinc-500" aria-label="Shared" />}
+                      <Switch
+                        label={`${skill.enabled ? 'Disable' : 'Enable'} ${skill.name}`}
+                        checked={skill.enabled}
+                        pending={busyIds.has(skill.id)}
+                        disabled={!writable}
+                        title={writable ? (skill.enabled ? 'Enabled' : 'Disabled') : reason}
+                        onChange={(next) => void setEnabled(skill, next)}
+                      />
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    {/* The name is the card's keyboard and screen-reader entry; its ::after stretches over the card. */}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setOpenId(skill.id) }} className="block max-w-full truncate rounded-md text-left text-sm font-semibold text-zinc-900 after:absolute after:inset-0 after:content-['']">
+                      {skill.name}
+                    </button>
+                    <p className="mt-1 line-clamp-2 text-xs text-zinc-600">{skill.description}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {skill.allowed_tools.slice(0, MAX_CARD_TOOLS).map((t) => (
+                      <Chip key={t} mono icon={<Wrench size={9} />}>
+                        {t}
+                      </Chip>
+                    ))}
+                    {skill.allowed_tools.length > MAX_CARD_TOOLS && <Chip tone="muted">+{skill.allowed_tools.length - MAX_CARD_TOOLS}</Chip>}
+                  </div>
+                  <div className="mt-auto flex items-center justify-between gap-2 border-t border-[var(--color-line)] pt-2 text-xs text-zinc-500">
+                    <span className="truncate">{skill.owner_id === currentUserId ? 'You' : skill.owner_id}</span>
+                    <Button
+                      size="sm"
+                      className="relative z-10"
+                      icon={<PencilSimple size={13} />}
+                      disabled={!writable}
+                      title={writable ? undefined : reason}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setOpenId(skill.id)
+                        setEditing(skill)
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  </div>
+                </Card>
+              </li>
+            )
+          })}
+        </ul>
+      )}
 
-      {editing && tools && (
-        <SkillEditorDrawer
+      {openId && editing === null && tab === 'skills' && skills !== null && (
+        openSkill ? (
+          <SkillDetailSheet
+            skill={openSkill}
+            tools={tools}
+            canWrite={canWriteSkill(openSkill)}
+            writeReason={writeReasonFor(openSkill)}
+            togglePending={busyIds.has(openSkill.id)}
+            onClose={() => setOpenId('')}
+            onPrev={rows.length > 1 ? () => step(-1) : undefined}
+            onNext={rows.length > 1 ? () => step(1) : undefined}
+            onEdit={() => setEditing(openSkill)}
+            onToggle={(next) => void setEnabled(openSkill, next)}
+            onDelete={() => remove(openSkill)}
+            onTestRouting={testRouting}
+          />
+        ) : (
+          <Sheet open onClose={() => setOpenId('')} eyebrow="Skills" title="Skill not found">
+            <ErrorState message="This skill doesn't exist, was deleted, or you can't see it." />
+          </Sheet>
+        )
+      )}
+
+      {editing !== null && (
+        <SkillFormSheet
+          key={editing === 'new' ? 'new' : editing.id}
           skill={editing === 'new' ? null : editing}
           tools={tools}
+          canWrite={editing === 'new' ? hasMutate : canWriteSkill(editing)}
+          writeReason={editing === 'new' ? (createReason ?? '') : writeReasonFor(editing)}
           onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null)
-            refresh()
-          }}
+          onSaved={saved}
         />
       )}
-    </div>
-  )
-}
-
-function SkillEditorDrawer({
-  skill,
-  tools,
-  onClose,
-  onSaved,
-}: {
-  skill: Skill | null
-  tools: ToolCatalogEntry[]
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [form, setForm] = useState<SkillFormState>(skill ? toFormState(skill) : EMPTY_FORM)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const isNew = skill === null
-  const { me } = useMe()
-  const hasMutatePermission = me ? me.permissions.includes('mutate_skills') : true
-  const canWrite = hasMutatePermission && (isNew || canWriteResource(me, skill))
-
-  const handleSave = async () => {
-    setSaving(true)
-    setError(null)
-    try {
-      const examples = form.examples
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)
-      if (isNew) {
-        await api.createSkill({
-          slug: form.slug,
-          name: form.name,
-          description: form.description,
-          instructions: form.instructions,
-          allowed_tools: form.allowed_tools,
-          examples,
-          visibility: form.visibility,
-          enabled: form.enabled,
-        })
-      } else {
-        await api.updateSkill(skill!.id, {
-          name: form.name,
-          description: form.description,
-          instructions: form.instructions,
-          allowed_tools: form.allowed_tools,
-          examples,
-          visibility: form.visibility,
-          enabled: form.enabled,
-        })
-      }
-      onSaved()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save skill.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!skill) return
-    setSaving(true)
-    setError(null)
-    try {
-      await api.deleteSkill(skill.id)
-      onSaved()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to delete skill.')
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-zinc-900/40">
-      <div className="flex h-full w-full max-w-lg flex-col overflow-y-auto bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-zinc-900">
-            {isNew ? 'New skill' : `Edit ${skill!.name}`}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100"
-            aria-label="Close"
-          >
-            <X size={16} weight="bold" />
-          </button>
-        </div>
-
-        <div className="flex-1 space-y-4 px-5 py-4">
-          {error && <ErrorBanner message={error} />}
-
-          {!canWrite && !isNew && (
-            <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              You can view this skill but not edit it (owned by {skill!.owner_id}).
-            </p>
-          )}
-
-          {isNew && (
-            <label className="block text-xs font-medium text-zinc-600">
-              Slug
-              <input name="input" autoComplete="off"
-                type="text"
-                value={form.slug}
-                onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
-                placeholder="triage-outage…"
-                className="mt-1 w-full rounded-md border border-zinc-200 px-2.5 py-1.5 text-sm font-mono focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-              />
-              <span className="mt-1 block text-xs text-zinc-500">
-                Lowercase, kebab-case. Used as the /slug slash command in chat (phase 04).
-              </span>
-            </label>
-          )}
-
-          <label className="block text-xs font-medium text-zinc-600">
-            Name
-            <input name="input" autoComplete="off"
-              type="text"
-              value={form.name}
-              disabled={!canWrite}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="mt-1 w-full rounded-md border border-zinc-200 px-2.5 py-1.5 text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:opacity-60"
-            />
-          </label>
-
-          <label className="block text-xs font-medium text-zinc-600">
-            Description (routing signal)
-            <textarea name="textarea" autoComplete="off"
-              value={form.description}
-              disabled={!canWrite}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              rows={2}
-              className="mt-1 w-full rounded-md border border-zinc-200 px-2.5 py-1.5 text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:opacity-60"
-            />
-            <span className="mt-1 block text-xs text-zinc-500">
-              Shown to the skill router (phase 04) to decide when this skill applies.
-            </span>
-          </label>
-
-          <label className="block text-xs font-medium text-zinc-600">
-            Instructions (markdown, appended to the system prompt)
-            <textarea name="textarea" autoComplete="off"
-              value={form.instructions}
-              disabled={!canWrite}
-              onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))}
-              rows={6}
-              className="mt-1 w-full rounded-md border border-zinc-200 px-2.5 py-1.5 text-sm font-mono focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:opacity-60"
-            />
-          </label>
-
-          <div>
-            <p className="mb-1.5 text-xs font-medium text-zinc-600">Allowed tools</p>
-            <ToolPicker
-              tools={tools}
-              selected={form.allowed_tools}
-              onChange={(next) => canWrite && setForm((f) => ({ ...f, allowed_tools: next }))}
-            />
-          </div>
-
-          <label className="block text-xs font-medium text-zinc-600">
-            Examples (one per line — sample user intents)
-            <textarea name="textarea" autoComplete="off"
-              value={form.examples}
-              disabled={!canWrite}
-              onChange={(e) => setForm((f) => ({ ...f, examples: e.target.value }))}
-              rows={3}
-              placeholder={'auth-service is returning errors\nwhy is checkout down'}
-              className="mt-1 w-full rounded-md border border-zinc-200 px-2.5 py-1.5 text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:opacity-60"
-            />
-          </label>
-
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-xs font-medium text-zinc-600">
-              <select name="select"
-                value={form.visibility}
-                disabled={!canWrite}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, visibility: e.target.value as 'private' | 'shared' }))
-                }
-                className="rounded-md border border-zinc-200 px-2 py-1 text-xs focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:opacity-60"
-              >
-                <option value="private">Private</option>
-                <option value="shared">Shared</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-600">
-              <input name="input"
-                type="checkbox"
-                checked={form.enabled}
-                disabled={!canWrite}
-                onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
-                className="h-3.5 w-3.5 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
-              />
-              Enabled
-            </label>
-          </div>
-
-          {!isNew && (
-            <p className="text-xs text-zinc-500">
-              Last updated {formatTimestamp(skill!.updated_at)} by {skill!.updated_by}
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-zinc-200 px-5 py-3">
-          {!isNew && canWrite ? (
-            <ConfirmButton
-              prompt={`Delete skill "${skill!.name}"? This cannot be undone.`}
-              onConfirm={() => void handleDelete()}
-              disabled={saving}
-              className="ui-btn ui-btn-danger ui-btn-sm"
-            >
-              <Trash size={13} weight="bold" />
-              Delete
-            </ConfirmButton>
-          ) : (
-            <span />
-          )}
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving || !form.name || !form.description || form.allowed_tools.length === 0 || !canWrite}
-            title={canWrite ? undefined : disabledReason(me, 'mutate_skills')}
-            className="ui-btn ui-btn-primary"
-          >
-            {saving ? 'Saving…' : isNew ? 'Create skill' : 'Save changes'}
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

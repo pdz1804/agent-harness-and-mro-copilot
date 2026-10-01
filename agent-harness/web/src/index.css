@@ -46,12 +46,20 @@
   --color-line: oklch(0.25 0.02 272 / 0.09);
   --color-line-strong: oklch(0.25 0.02 272 / 0.15);
 
-  --radius-sm: 0.3125rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.75rem;
-  --radius-2xl: 1rem;
-  --radius-card: 0.75rem;
+  /* One radius scale: 6 / 10 / 14 / 20 / pill. Every Tailwind radius
+     utility is snapped onto it, so legacy classes cannot drift off-scale.
+     Controls 10, cards and tables 14, overlays (sheet, toast, popover,
+     palette, nav panel) 20. Nested surfaces step down one notch. */
+  --radius-xs: 6px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 20px;
+  --radius-3xl: 20px;
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-overlay: 20px;
 
   --shadow-xs: 0 1px 1px oklch(0.2 0.03 272 / 0.04);
   --shadow-sm: 0 1px 2px oklch(0.2 0.03 272 / 0.05), 0 1px 3px oklch(0.2 0.03 272 / 0.04);
@@ -61,6 +69,18 @@
   --shadow-xl: 0 8px 16px -4px oklch(0.2 0.03 272 / 0.08), 0 28px 64px -16px oklch(0.2 0.03 272 / 0.28);
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Spring motion. `snappy` (controls, fold chevrons, toggles) settles with a
+     hair of overshoot; `smooth` (sheets, toasts, popovers) has none. */
+  --ease-spring-snappy: cubic-bezier(0.3, 1.32, 0.5, 1);
+  --ease-spring-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 280ms;
+  --animate-pop: pop 180ms var(--ease-spring-smooth) both;
+  --animate-toast-in: toast-in 260ms var(--ease-spring-snappy) both;
+  --animate-toast-out: toast-out 160ms ease-in both;
+  --animate-sheet-in: sheet-in 280ms var(--ease-spring-smooth) both;
+  --animate-flash: flash 1200ms ease-out both;
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-rise: rise 220ms var(--ease-out-expo) both;
   --animate-fade: fade 180ms ease-out both;
@@ -83,6 +103,25 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
   }
+  @keyframes pop {
+    from { opacity: 0; transform: scale(0.96) translateY(-2px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes toast-out {
+    to { opacity: 0; transform: translateY(6px) scale(0.98); }
+  }
+  @keyframes sheet-in {
+    from { opacity: 0; transform: translateX(24px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes flash {
+    from { background-color: oklch(0.608 0.192 280 / 0.12); }
+    to { background-color: transparent; }
+  }
   @keyframes drawer {
     from { transform: translateX(16px); opacity: 0; }
     to { transform: none; opacity: 1; }
@@ -98,6 +137,9 @@ body,
 body {
   margin: 0;
   background-color: var(--color-canvas);
+  /* The backdrop glass reads against: a 1px dot grid, not a gradient wash. */
+  background-image: radial-gradient(circle at 1px 1px, oklch(0.25 0.02 272 / 0.075) 1px, transparent 0);
+  background-size: 22px 22px;
   color: var(--color-zinc-900);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -113,7 +155,9 @@ h2,
 h3 {
   font-family: var(--font-display);
   letter-spacing: -0.012em;
-  text-wrap: balance;
+  /* The style longhand only: the `text-wrap` shorthand would also reset the
+     wrap mode and, being unlayered, beat Tailwind's `truncate`. */
+  text-wrap-style: balance;
 }
 
 code,
@@ -132,9 +176,44 @@ kbd,
   color: inherit;
 }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(0.25 0.02 272 / 0.18) transparent;
+/* Thin overlay scrollbar, everywhere: a 6px pill thumb on a transparent
+   track, invisible at rest and shown while the container is hovered or
+   scrolling (`data-scrolling` is set by lib/scroll-activity.ts). A 10px
+   gutter with a 2px transparent border leaves a 6px visible thumb (8px while
+   dragged). Chromium and Safari use the ::-webkit pseudo-elements; Firefox
+   gets the standard thin scrollbar. Setting `scrollbar-width` in Chromium
+   would disable the pseudo-elements, hence the @supports split. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: transparent;
+}
+:hover::-webkit-scrollbar-thumb,
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: oklch(0.25 0.02 272 / 0.26);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.25 0.02 272 / 0.38);
+}
+::-webkit-scrollbar-thumb:active {
+  border-width: 1px;
+  background-color: oklch(0.25 0.02 272 / 0.46);
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.25 0.02 272 / 0.26) transparent;
+  }
 }
 
 input,
@@ -228,7 +307,7 @@ select {
     height: 2rem;
     padding: 0 0.75rem;
     border: 1px solid transparent;
-    border-radius: 0.5rem;
+    border-radius: var(--radius-control);
     font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1;
@@ -241,7 +320,7 @@ select {
       border-color 150ms ease,
       color 150ms ease,
       box-shadow 150ms ease,
-      transform 120ms var(--ease-out-expo),
+      transform 160ms var(--ease-spring-snappy),
       opacity 150ms ease;
   }
   .ui-btn:active:not(:disabled) {
@@ -256,11 +335,35 @@ select {
     height: 1.75rem;
     padding: 0 0.625rem;
     font-size: 0.75rem;
-    border-radius: 0.4375rem;
+    border-radius: 8px;
+  }
+  .ui-btn-lg {
+    height: 2.75rem;
+    padding: 0 1.125rem;
+    font-size: 0.875rem;
+    font-weight: 600;
   }
   .ui-btn-icon {
     width: 2rem;
     padding: 0;
+  }
+  .ui-btn-sm.ui-btn-icon {
+    width: 1.75rem;
+  }
+  .ui-btn-lg.ui-btn-icon {
+    width: 2.75rem;
+  }
+  .ui-btn[aria-busy='true'] {
+    cursor: progress;
+  }
+  .ui-btn-success {
+    background: oklch(0.56 0.14 158);
+    color: #fff;
+    border-color: oklch(0.48 0.13 158);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.2), 0 1px 2px oklch(0.4 0.1 160 / 0.35);
+  }
+  .ui-btn-success:hover:not(:disabled) {
+    background: oklch(0.51 0.135 158);
   }
   .ui-btn-primary {
     background: var(--color-sky-600);
@@ -334,7 +437,7 @@ select {
     min-width: 0;
     padding: 0 0.625rem;
     border: 1px solid var(--color-line-strong);
-    border-radius: 0.5rem;
+    border-radius: var(--radius-control);
     background-color: #fff;
     font-size: 0.8125rem;
     color: var(--color-zinc-900);
@@ -363,7 +466,7 @@ select {
   .ui-card {
     background: var(--color-surface);
     border: 1px solid var(--color-line);
-    border-radius: 0.625rem;
+    border-radius: var(--radius-card);
     box-shadow: var(--shadow-xs);
   }
   /* A card inside a card loses its own chrome (no boxes in boxes). */
@@ -481,7 +584,7 @@ select {
     position: relative;
     display: inline-flex;
     padding: 2px;
-    border-radius: 0.5rem;
+    border-radius: var(--radius-control);
     background: oklch(0.25 0.02 272 / 0.055);
     box-shadow: inset 0 0 0 1px oklch(0.25 0.02 272 / 0.04);
   }
@@ -540,6 +643,197 @@ select {
   }
 }
 
+/* ---------------------------------------------------------------------
+   v2 materials. Glass is for floating CHROME only: nav panel, palette,
+   toasts, popovers, composer, approval bar, Jump pill, bulk bar and scrolled
+   sticky headers. Content (cards, tables, tool-call cards) stays solid.
+   Reading surfaces (sheets, dialogs) use the near-solid variant (~92% fill)
+   so long text keeps >= 4.5:1 contrast whatever scrolls behind it.
+   --------------------------------------------------------------------- */
+@layer components {
+  .ui-glass,
+  .ui-glass-solid {
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    background-color: rgb(252 252 253 / 0.72);
+    border: 1px solid rgb(255 255 255 / 0.7);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.85),
+      0 0 0 1px oklch(0.25 0.02 272 / 0.06),
+      0 12px 32px -12px oklch(0.2 0.03 272 / 0.22);
+  }
+  .ui-glass-solid {
+    background-color: rgb(252 252 253 / 0.92);
+  }
+  /* No backdrop-filter support: fall back to the solid fill. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .ui-glass,
+    .ui-glass-solid {
+      background-color: #fcfcfd;
+    }
+  }
+
+  /* Sticky page header: transparent with the full title while the page is at
+     its top; frosted glass, a hairline and a smaller title once scrolled
+     (`data-stuck` is set by PageHeader's sentinel observer). */
+  .ui-sticky-header {
+    position: sticky;
+    z-index: 20;
+    transition:
+      background-color var(--duration-base) ease,
+      box-shadow var(--duration-base) ease,
+      padding var(--duration-base) var(--ease-spring-smooth);
+  }
+  .ui-sticky-header[data-stuck] {
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    background-color: rgb(252 252 253 / 0.78);
+    box-shadow: 0 1px 0 var(--color-line);
+  }
+  .ui-sticky-header .ui-page-title {
+    transition: font-size var(--duration-base) var(--ease-spring-smooth), line-height var(--duration-base) ease;
+  }
+  .ui-sticky-header[data-stuck] .ui-page-title {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+  }
+  .ui-sticky-header[data-stuck] .ui-page-lede {
+    display: none;
+  }
+
+  /* Tables always sit in a 14px rounded container that owns the horizontal
+     scroll; the page owns the vertical one. */
+  .ui-table-wrap {
+    overflow-x: auto;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-xs);
+  }
+  .ui-table-wrap .ui-table thead th:first-child {
+    border-top-left-radius: var(--radius-card);
+  }
+  .ui-table-wrap .ui-table thead th:last-child {
+    border-top-right-radius: var(--radius-card);
+  }
+  .ui-table tbody tr[data-clickable] {
+    cursor: pointer;
+  }
+  .ui-table tbody tr[aria-selected='true'] {
+    background: oklch(0.608 0.192 280 / 0.06);
+  }
+  .ui-table tbody tr[data-flash] {
+    animation: var(--animate-flash);
+  }
+
+  /* Row actions are revealed on row hover / focus-within; always visible on
+     touch, where there is no hover. */
+  .ui-reveal {
+    opacity: 0;
+  }
+  :where(tr, li, [data-row]):hover .ui-reveal,
+  :where(tr, li, [data-row]):focus-within .ui-reveal,
+  .ui-reveal:focus-visible,
+  .ui-reveal[aria-expanded='true'] {
+    opacity: 1;
+  }
+  @media (hover: none) {
+    .ui-reveal {
+      opacity: 1;
+    }
+  }
+
+  /* Long scroll lists fade 28px at the top and bottom edges. */
+  .ui-fade-edges {
+    mask-image: linear-gradient(to bottom, transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+  }
+
+  /* Card rails (starters, dashboards, mobile cards) snap. */
+  .ui-snap-x {
+    scroll-snap-type: x mandatory;
+  }
+  .ui-snap-x > * {
+    scroll-snap-align: start;
+  }
+
+  /* Live run pulse: only rendered while a run streams. */
+  .ui-live-dot {
+    position: relative;
+  }
+  .ui-live-dot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: currentColor;
+    animation: live-pulse 1.8s var(--ease-spring-smooth) infinite;
+  }
+  @keyframes live-pulse {
+    0% { transform: scale(0.6); opacity: 0.8; }
+    100% { transform: scale(2.2); opacity: 0; }
+  }
+
+  /* Nav group fold. */
+  .ui-fold-chevron {
+    transition: transform var(--duration-base) var(--ease-spring-snappy);
+  }
+  [aria-expanded='true'] > .ui-fold-chevron {
+    transform: rotate(90deg);
+  }
+
+  /* Toggle switch. */
+  .ui-switch {
+    position: relative;
+    display: inline-flex;
+    width: 2.125rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: oklch(0.25 0.02 272 / 0.16);
+    transition: background-color var(--duration-fast) ease;
+  }
+  .ui-switch[aria-checked='true'] {
+    background: var(--color-sky-600);
+  }
+  .ui-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 2px oklch(0.2 0.03 272 / 0.3);
+    transition: transform var(--duration-base) var(--ease-spring-snappy);
+  }
+  .ui-switch[aria-checked='true']::after {
+    transform: translateX(0.875rem);
+  }
+  .ui-switch:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+/* Toasts stay clear of an open sheet's footer (its primary action). */
+@media (min-width: 1024px) {
+  body:has([data-sheet]) [data-toast-stack] {
+    bottom: 5rem;
+  }
+}
+
+/* Accessibility guards. Reduced transparency turns every glass layer solid. */
+@media (prefers-reduced-transparency: reduce) {
+  .ui-glass,
+  .ui-glass-solid,
+  .ui-sticky-header[data-stuck] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background-color: #fcfcfd !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -549,4 +843,9 @@ select {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* The sheet panel takes programmatic focus on open; it is not a control. */
+[data-sheet]:focus-visible {
+  outline: none;
 }

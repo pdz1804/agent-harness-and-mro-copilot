@@ -1,34 +1,43 @@
-import { ArrowClockwise, PlusCircle, ShieldCheck } from '@phosphor-icons/react'
-import { useEffect, useId, useState } from 'react'
-import { ErrorBanner } from '../components/ErrorBanner'
-import { Skeleton } from '../components/Skeleton'
+import { Plus, ShieldCheck } from '@phosphor-icons/react'
+import { useEffect, useMemo, useState } from 'react'
+import { CreateRuleSheet } from '../components/guardrails/CreateRuleSheet'
+import { RuleSheet } from '../components/guardrails/RuleSheet'
 import { TestSandbox } from '../components/guardrails/TestSandbox'
 import { TriggerHistory } from '../components/guardrails/TriggerHistory'
-import { PageHeader } from '../components/ui/PageHeader'
+import { Button, Chip, EmptyState, ErrorState, FilteredEmpty, PageHeader, Row, SearchInput, Segmented, Switch, Table, TableSkeleton, useToast } from '../components/ui'
+import { useClearUrlParams, useUrlEnum, useUrlState } from '../hooks/useUrlState'
 import { disabledReason, useMe } from '../hooks/useMe'
-import { ApiError, api } from '../lib/api'
+import { api, errorText } from '../lib/api'
 import type { Guardrail, GuardrailTrigger } from '../lib/api-types'
 import { kindLabel } from '../lib/guardrail-sandbox'
+import { GUARDRAIL_STATE_FILTERS, filterGuardrails, filterTriggers, guardrailPatterns, type GuardrailStateFilter } from '../lib/guardrails-validation'
+
+const TABS = ['rules', 'history', 'sandbox'] as const
+const FILTER_KEYS = ['q', 'state']
 
 /** Guardrails: the harness's two real, enforced guardrails.
  * `objective_pattern_block` (input) ends a run immediately with a
  * `guardrail_blocked` trace event before the agent loop starts;
  * `severity_upgrade_block` (output) caps an unsupported `critical`
  * `create_incident` severity to `high` next to the approval gate. Toggling
- * takes effect on the very next run/tool call, since both enforcement points
+ * takes effect on the very next run or tool call, since both enforcement points
  * read the table fresh every time. The sandbox dry-runs both with the same
- * logic; the history lists real recorded triggers linked to their runs. */
+ * logic; the history lists real recorded triggers linked to their runs.
+ * Tab, filters, the open rule (`?open=<id>`) and the create sheet
+ * (`?create=1`) live in the URL. */
 export function GuardrailsPage() {
-  const uid = useId()
+  const toast = useToast()
+  const [tab, setTab] = useUrlEnum('tab', TABS, 'rules')
+  const [q, setQ] = useUrlState('q')
+  const [state, setState] = useUrlEnum<GuardrailStateFilter>('state', GUARDRAIL_STATE_FILTERS, 'all')
+  const [openId, setOpenId] = useUrlState('open')
+  const [create, setCreate] = useUrlState('create')
+  const clearParams = useClearUrlParams()
   const [guardrails, setGuardrails] = useState<Guardrail[] | null>(null)
   const [triggers, setTriggers] = useState<GuardrailTrigger[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [updating, setUpdating] = useState<string | null>(null)
+  const [updating, setUpdating] = useState<Set<string>>(() => new Set())
   const [refreshToken, setRefreshToken] = useState(0)
-
-  const [newName, setNewName] = useState('')
-  const [newPatterns, setNewPatterns] = useState('')
-  const [creating, setCreating] = useState(false)
 
   const { me } = useMe()
   const canMutate = me ? me.permissions.includes('mutate_guardrails') : true
@@ -36,208 +45,222 @@ export function GuardrailsPage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([api.listGuardrails(), api.listGuardrailTriggers()])
-      .then(([g, t]) => {
+    Promise.all([api.listGuardrails(), api.listGuardrailTriggers()]).then(
+      ([g, t]) => {
         if (cancelled) return
         setGuardrails(g)
         setTriggers(t)
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setError(err instanceof ApiError ? err.message : 'Failed to load guardrails.')
-      })
+        setError(null)
+      },
+      (err: unknown) => {
+        if (!cancelled) setError(errorText(err, 'Failed to load guardrails.'))
+      },
+    )
     return () => {
       cancelled = true
     }
   }, [refreshToken])
 
-  const handleToggle = async (guardrailId: string, enabled: boolean) => {
-    setUpdating(guardrailId)
-    try {
-      const updated = await api.setGuardrailEnabled(guardrailId, enabled)
-      setGuardrails((prev) => (prev ? prev.map((g) => (g.id === guardrailId ? updated : g)) : prev))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update guardrail.')
-    } finally {
-      setUpdating(null)
-    }
-  }
+  const replace = (updated: Guardrail) => setGuardrails((prev) => (prev ? prev.map((g) => (g.id === updated.id ? updated : g)) : prev))
+  const setPending = (id: string, on: boolean) =>
+    setUpdating((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
 
-  const handleCreate = async () => {
-    const patterns = newPatterns
-      .split('\n')
-      .map((p) => p.trim())
-      .filter(Boolean)
-    if (!newName.trim() || patterns.length === 0) return
-    setCreating(true)
+  /** Flip a rule; the toast's Undo flips it back. */
+  const toggle = async (guardrail: Guardrail, enabled: boolean) => {
+    setPending(guardrail.id, true)
     try {
-      await api.createGuardrail({
-        name: newName.trim(),
-        kind: 'objective_pattern_block',
-        config: { patterns },
+      replace(await api.setGuardrailEnabled(guardrail.id, enabled))
+      toast({
+        title: `${enabled ? 'Enabled' : 'Disabled'} “${guardrail.name}”`,
+        description: 'Applies to the next run.',
+        action: {
+          label: 'Undo',
+          run: async () => {
+            replace(await api.setGuardrailEnabled(guardrail.id, !enabled))
+          },
+        },
       })
-      setNewName('')
-      setNewPatterns('')
-      setError(null)
-      setRefreshToken((n) => n + 1)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to create guardrail.')
+      toast({ tone: 'error', title: `Couldn't ${enabled ? 'enable' : 'disable'} “${guardrail.name}”`, description: errorText(err, 'Try again.') })
     } finally {
-      setCreating(false)
+      setPending(guardrail.id, false)
     }
   }
 
+  const rules = useMemo(() => (guardrails ? filterGuardrails(guardrails, q, state) : null), [guardrails, q, state])
+  const history = useMemo(() => (triggers ? filterTriggers(triggers, q) : null), [triggers, q])
+  const filtersActive = q.trim() !== '' || (tab === 'rules' && state !== 'all')
+  const clearFilters = () => clearParams(FILTER_KEYS)
   const retry = () => {
     setError(null)
     setRefreshToken((n) => n + 1)
   }
 
+  const openIndex = rules ? rules.findIndex((g) => g.id === openId) : -1
+  const step = (delta: 1 | -1) => {
+    if (!rules?.length) return
+    setOpenId(rules[(Math.max(0, openIndex) + delta + rules.length) % rules.length].id)
+  }
+
+  const newRuleButton = (
+    <Button variant="primary" icon={<Plus size={14} weight="bold" />} onClick={() => setCreate('1')} disabled={!canMutate} title={mutateTitle}>
+      New rule
+    </Button>
+  )
+
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Guardrails"
-        description={
+        description="Real, enforced checks: a banned objective pattern ends a run immediately, and an unsupported critical incident severity is downgraded to high before the approval gate."
+        actions={newRuleButton}
+        toolbar={
           <>
-            Real, enforced checks: a banned objective pattern ends a run immediately, and an unsupported{' '}
-            <code className="font-data">critical</code> incident severity is downgraded to{' '}
-            <code className="font-data">high</code> before the approval gate.
+            <Segmented
+              label="Guardrail sections"
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'rules', label: 'Rules', count: guardrails?.length },
+                { value: 'history', label: 'Trigger history', count: triggers?.length },
+                { value: 'sandbox', label: 'Test sandbox' },
+              ]}
+            />
+            {tab !== 'sandbox' && <SearchInput label={tab === 'rules' ? 'Search rules' : 'Search trigger history'} placeholder={tab === 'rules' ? 'Search rules and patterns' : 'Search rule, run or objective'} value={q} onValueChange={setQ} className="w-full sm:w-64" />}
+            {tab === 'rules' && (
+              <Segmented
+                label="Enabled state"
+                value={state}
+                onChange={setState}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'enabled', label: 'Enabled' },
+                  { value: 'disabled', label: 'Disabled' },
+                ]}
+              />
+            )}
+            {tab !== 'sandbox' && filtersActive && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            )}
           </>
-        }
-        actions={
-          <button type="button" onClick={retry} className="ui-btn ui-btn-secondary">
-            <ArrowClockwise size={14} weight="bold" aria-hidden="true" />
-            Refresh
-          </button>
         }
       />
 
-      <TestSandbox guardrails={guardrails} />
-
-      {error && <ErrorBanner message={error} onRetry={retry} />}
-
-      <section aria-labelledby={`${uid}-rules`}>
-        <h2 id={`${uid}-rules`} className="ui-section-label mb-2">
-          Rules
-        </h2>
-        {!error && guardrails === null ? (
-          <div className="space-y-2">
-            {[0, 1].map((i) => (
-              <Skeleton key={i} className="h-16 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : guardrails && guardrails.length > 0 ? (
-          <ul className="ui-list ui-card divide-y divide-zinc-200 overflow-hidden">
-            {guardrails.map((guardrail) => {
-              const patterns = Array.isArray(guardrail.config.patterns) ? (guardrail.config.patterns as string[]) : []
-              return (
-                <li key={guardrail.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck size={14} className="shrink-0 text-zinc-600" aria-hidden="true" />
-                      <span className="text-[13px] font-medium text-zinc-900 [overflow-wrap:anywhere]">
-                        {guardrail.name}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-zinc-600 [overflow-wrap:anywhere]">
-                      {kindLabel(guardrail.kind)}
-                      {guardrail.kind === 'objective_pattern_block' && patterns.length > 0 && (
-                        <>
-                          {' — patterns: '}
-                          <span className="font-data">{patterns.join(', ')}</span>
-                        </>
+      {tab === 'sandbox' ? (
+        <TestSandbox guardrails={guardrails} />
+      ) : error && guardrails === null ? (
+        <ErrorState message={error} onRetry={retry} />
+      ) : tab === 'rules' ? (
+        rules === null ? (
+          <TableSkeleton rows={3} columns={3} />
+        ) : guardrails?.length === 0 ? (
+          <EmptyState
+            icon={<ShieldCheck size={22} weight="duotone" />}
+            title="No guardrails configured"
+            description="Block objectives that match a banned pattern before the agent starts."
+            action={newRuleButton}
+            example="Try: “delete all data” or “wipe the database”."
+          />
+        ) : rules.length === 0 ? (
+          <FilteredEmpty query={q || undefined} what="rules" onClear={clearFilters} />
+        ) : (
+          <Table label="Guardrail rules">
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th className="hidden md:table-cell">Type</th>
+                <th className="hidden sm:table-cell">Patterns</th>
+                <th className="w-24 text-right">Enabled</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((g) => {
+                const patterns = guardrailPatterns(g)
+                return (
+                  <Row key={g.id} onOpen={() => setOpenId(g.id)} selected={g.id === openId}>
+                    <td className="max-w-0 min-w-[10rem]">
+                      <p className="flex items-center gap-2 truncate font-medium text-zinc-900">
+                        <ShieldCheck size={14} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                        <span className="truncate">{g.name}</span>
+                      </p>
+                    </td>
+                    <td className="hidden md:table-cell">
+                      <Chip tone="violet">{g.kind === 'objective_pattern_block' ? 'Input' : 'Output'}</Chip>
+                      <span className="ml-2 text-xs text-zinc-500">{kindLabel(g.kind).replace(/ \((input|output)\)$/, '')}</span>
+                    </td>
+                    <td className="hidden max-w-[16rem] sm:table-cell">
+                      {g.kind === 'objective_pattern_block' ? (
+                        <span className="font-data block truncate text-xs text-zinc-600" title={patterns.join(', ')}>
+                          {patterns.length ? patterns.join(', ') : 'None'}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-zinc-500">Built in</span>
                       )}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={guardrail.enabled}
-                    aria-label={`${guardrail.enabled ? 'Disable' : 'Enable'} ${guardrail.name}`}
-                    disabled={!canMutate || updating === guardrail.id}
-                    title={mutateTitle}
-                    onClick={() => void handleToggle(guardrail.id, !guardrail.enabled)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
-                      guardrail.enabled ? 'bg-sky-600' : 'bg-zinc-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4.5 w-4.5 transform rounded-full bg-white transition-transform ${
-                        guardrail.enabled ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        ) : (
-          !error && (
-            <p className="text-[13px] text-zinc-600">
-              No guardrails configured. Add a banned-pattern rule below to start blocking objectives.
-            </p>
-          )
-        )}
+                    </td>
+                    <td className="text-right">
+                      <Switch
+                        checked={g.enabled}
+                        label={`${g.enabled ? 'Disable' : 'Enable'} ${g.name}`}
+                        disabled={!canMutate}
+                        title={mutateTitle}
+                        pending={updating.has(g.id)}
+                        onChange={(next) => void toggle(g, next)}
+                      />
+                    </td>
+                  </Row>
+                )
+              })}
+            </tbody>
+          </Table>
+        )
+      ) : history === null ? (
+        <TableSkeleton rows={4} columns={4} />
+      ) : triggers?.length === 0 ? (
+        <EmptyState
+          icon={<ShieldCheck size={22} weight="duotone" />}
+          title="No guardrail has fired yet"
+          description="When a run is blocked or a severity is downgraded, it shows up here with a link to the run."
+          example="Use the test sandbox to see what a rule would do without running anything."
+        />
+      ) : history.length === 0 ? (
+        <FilteredEmpty query={q || undefined} what="triggers" onClear={clearFilters} />
+      ) : (
+        <TriggerHistory triggers={history} />
+      )}
 
-        <div className="mt-3 ui-card p-4">
-          <p className="mb-2 text-xs font-medium text-zinc-700">New input guardrail: banned objective patterns</p>
-          <label htmlFor={`${uid}-name`} className="mb-1 block text-xs text-zinc-600">
-            Name
-          </label>
-          <input
-            id={`${uid}-name`}
-            name="guardrail-name"
-            autoComplete="off"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="e.g. Block destructive requests…"
-            disabled={!canMutate}
-            className="ui-input mb-2 w-full"
-          />
-          <label htmlFor={`${uid}-patterns`} className="mb-1 block text-xs text-zinc-600">
-            Banned patterns, one per line
-          </label>
-          <textarea
-            id={`${uid}-patterns`}
-            name="guardrail-patterns"
-            autoComplete="off"
-            spellCheck={false}
-            value={newPatterns}
-            onChange={(e) => setNewPatterns(e.target.value)}
-            rows={3}
-            disabled={!canMutate}
-            placeholder={'delete all data\nwipe the database'}
-            className="ui-input w-full font-data"
-          />
-          <button
-            type="button"
-            disabled={!canMutate || creating || !newName.trim() || !newPatterns.trim()}
-            title={mutateTitle}
-            onClick={() => void handleCreate()}
-            className="ui-btn ui-btn-secondary mt-2"
-          >
-            <PlusCircle size={14} weight="bold" aria-hidden="true" />
-            {creating ? 'Creating…' : 'Create guardrail'}
-          </button>
-        </div>
-      </section>
+      {openId && (
+        <RuleSheet
+          guardrail={guardrails?.find((g) => g.id === openId) ?? null}
+          loading={guardrails === null}
+          triggers={triggers ?? []}
+          canMutate={canMutate}
+          reason={mutateTitle}
+          pending={updating.has(openId)}
+          onToggle={(next) => {
+            const g = guardrails?.find((x) => x.id === openId)
+            if (g) void toggle(g, next)
+          }}
+          onClose={() => setOpenId('')}
+          onPrev={rules && rules.length > 1 ? () => step(-1) : undefined}
+          onNext={rules && rules.length > 1 ? () => step(1) : undefined}
+        />
+      )}
 
-      <section aria-labelledby={`${uid}-history`}>
-        <h2 id={`${uid}-history`} className="ui-section-label mb-2">
-          Trigger history
-        </h2>
-        {!error && triggers === null ? (
-          <Skeleton className="h-16 w-full rounded-lg" />
-        ) : triggers && triggers.length > 0 ? (
-          <TriggerHistory triggers={triggers} />
-        ) : (
-          !error && (
-            <p className="text-[13px] text-zinc-600">
-              No guardrail has fired yet. When a run is blocked or a severity is downgraded, it shows up here with a
-              link to the run.
-            </p>
-          )
-        )}
-      </section>
+      {create && (
+        <CreateRuleSheet
+          canMutate={canMutate}
+          reason={mutateTitle}
+          onClose={() => setCreate('')}
+          onCreated={(created) => setGuardrails((prev) => (prev ? [...prev, created] : prev))}
+        />
+      )}
     </div>
   )
 }

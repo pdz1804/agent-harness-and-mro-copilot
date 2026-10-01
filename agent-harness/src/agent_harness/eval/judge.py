@@ -146,13 +146,16 @@ def build_transcript(run: dict[str, Any]) -> str:
                 "error": None,
             }
         elif event_type == "tool_call_result":
-            entry = tool_calls_by_step.setdefault(event.get("step"), {})
+            entry = tool_calls_by_step.setdefault(event.get("step"), _empty_call())
             entry["tool_name"] = entry.get("tool_name") or data.get("tool_name")
             # The loop records a tool's return value under "output".
             entry["result"] = data.get("output")
         elif event_type in ("tool_call_error", "tool_call_timeout", "tool_validation_error"):
-            entry = tool_calls_by_step.setdefault(event.get("step"), {})
+            # A validation error has no preceding tool_call_started (the call
+            # never ran), so the entry may be created here.
+            entry = tool_calls_by_step.setdefault(event.get("step"), _empty_call())
             entry["tool_name"] = entry.get("tool_name") or data.get("tool_name")
+            entry["args"] = entry.get("args") or data.get("args")
             entry["error"] = data.get("error") or event_type
         elif event_type == "final_answer":
             final_answer = data.get("final_answer") or data.get("content")
@@ -175,7 +178,7 @@ def build_transcript(run: dict[str, Any]) -> str:
         for step in sorted(tool_calls_by_step, key=lambda s: (s is None, s)):
             call = tool_calls_by_step[step]
             result_text = (
-                json.dumps(call["result"], default=str) if call["result"] is not None else call.get("error") or "(no result)"
+                json.dumps(call["result"], default=str) if call.get("result") is not None else call.get("error") or "(no result)"
             )
             lines.append(f"  - {call.get('tool_name')}(args={call.get('args')}) -> {_truncate(result_text)}")
 
@@ -184,6 +187,10 @@ def build_transcript(run: dict[str, Any]) -> str:
 
     lines.append(f"Final answer: {final_answer or '(none — run did not reach a final answer)'}")
     return "\n".join(lines)
+
+
+def _empty_call() -> dict[str, Any]:
+    return {"tool_name": None, "args": None, "result": None, "error": None}
 
 
 def _unavailable_rows(judge_version: str, routing_applicable: bool) -> list[MetricRow]:

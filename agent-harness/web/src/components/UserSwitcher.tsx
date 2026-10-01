@@ -1,3 +1,5 @@
+import { flushDeferred } from '../lib/deferred-action'
+import { Chip, type ChipTone } from './ui/Chip'
 import { CaretUpDown, Check } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
 import { invalidateSkillCommandsCache } from './chat/Composer'
@@ -5,11 +7,7 @@ import { api, ApiError } from '../lib/api'
 import { getCurrentUserId, setCurrentUserId } from '../lib/identity'
 import type { Me, Role, User } from '../lib/api-types'
 
-const ROLE_BADGE_CLASS: Record<Role, string> = {
-  admin: 'bg-violet-50 text-violet-700 ring-violet-200',
-  editor: 'bg-sky-50 text-sky-700 ring-sky-200',
-  viewer: 'bg-zinc-100 text-zinc-600 ring-zinc-200',
-}
+const ROLE_TONE: Record<Role, ChipTone> = { admin: 'violet', editor: 'iris', viewer: 'neutral' }
 
 const AVATAR_CLASS: Record<Role, string> = {
   admin: 'from-violet-500 to-sky-600',
@@ -95,6 +93,8 @@ export function UserSwitcher({ compact = false }: { compact?: boolean }) {
   }, [])
 
   const switchTo = (userId: string) => {
+    // Send any held Undo-able change as the current user before switching.
+    flushDeferred()
     setCurrentUserId(userId)
     invalidateSkillCommandsCache()
     setOpen(false)
@@ -137,7 +137,7 @@ export function UserSwitcher({ compact = false }: { compact?: boolean }) {
       {open && (
         <div
           role="menu"
-          className={`absolute bottom-full z-50 mb-2 w-64 animate-rise overflow-hidden rounded-xl border border-[var(--color-line)] bg-white p-1 shadow-[var(--shadow-lg)] ${
+          className={`ui-glass absolute bottom-full z-50 mb-2 w-64 animate-pop overflow-hidden rounded-[20px] p-1 ${
             compact ? 'left-0' : 'inset-x-0 w-auto'
           }`}
         >
@@ -151,15 +151,13 @@ export function UserSwitcher({ compact = false }: { compact?: boolean }) {
                 role="menuitemradio"
                 aria-checked={current}
                 onClick={() => switchTo(user.id)}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-zinc-100 ${
+                className={`flex w-full items-center gap-2.5 rounded-[14px] px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-zinc-950/[0.05] ${
                   current ? 'font-medium text-zinc-950' : 'text-zinc-700'
                 }`}
               >
                 <Avatar name={user.display_name} role={user.role} />
                 <span className="min-w-0 flex-1 truncate">{user.display_name}</span>
-                <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${ROLE_BADGE_CLASS[user.role]}`}>
-                  {user.role}
-                </span>
+                <Chip tone={ROLE_TONE[user.role]}>{user.role}</Chip>
                 <Check size={13} weight="bold" className={current ? 'text-sky-600' : 'invisible'} />
               </button>
             )

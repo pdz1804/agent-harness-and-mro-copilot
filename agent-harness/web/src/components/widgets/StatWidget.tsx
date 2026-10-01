@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp } from '@phosphor-icons/react'
 import type { DashboardWidget } from '../../lib/api-types'
+import { Chip } from '../ui'
 
 function formatValue(raw: unknown, format: string | undefined, suffix: string | null | undefined): string {
   const n = typeof raw === 'number' ? raw : Number(raw)
@@ -42,18 +43,13 @@ export function StatWidget({ widget }: { widget: DashboardWidget }) {
         {formatValue(value, format, suffix)}
       </p>
       {delta_col && !Number.isNaN(deltaNum) && (
-        <p
-          className={`mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
-            deltaNum > 0 ? 'bg-emerald-50 text-emerald-700' : deltaNum < 0 ? 'bg-rose-50 text-rose-700' : 'bg-zinc-100 text-zinc-500'
-          }`}
+        <Chip
+          tone={deltaNum > 0 ? 'ok' : deltaNum < 0 ? 'danger' : 'neutral'}
+          icon={deltaNum > 0 ? <ArrowUp size={11} weight="bold" /> : deltaNum < 0 ? <ArrowDown size={11} weight="bold" /> : undefined}
+          className="mt-2 tabular-nums"
         >
-          {deltaNum > 0 ? (
-            <ArrowUp size={12} weight="bold" />
-          ) : deltaNum < 0 ? (
-            <ArrowDown size={12} weight="bold" />
-          ) : null}
           {formatValue(Math.abs(deltaNum), format, null)}
-        </p>
+        </Chip>
       )}
     </div>
   )

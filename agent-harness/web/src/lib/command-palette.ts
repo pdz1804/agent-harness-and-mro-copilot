@@ -6,7 +6,7 @@ export interface PaletteItem {
   label: string
   /** Where it goes: a hash route such as `/sessions` or `/runs/abc`. */
   to: string
-  group: 'Pages' | 'Sessions' | 'Approvals'
+  group: 'Actions' | 'Pages' | 'Sessions' | 'Approvals'
   /** Extra words that should also match (route name, status, agent...). */
   keywords?: string
   /** Quiet secondary text shown to the right. */

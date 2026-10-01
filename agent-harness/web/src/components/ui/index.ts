@@ -1,0 +1,21 @@
+/** The shared component set. Pages compose ONLY these (plus layout
+ * utilities); a page-local button, chip, sheet, toast or empty state is a
+ * regression. See web/DESIGN.md "Component set". */
+export { AnchorButton, Button, LinkButton, buttonClass, type ButtonSize, type ButtonVariant } from './Button'
+export { BulkBar } from './BulkBar'
+export { Card, CardHeader } from './Card'
+export { Chip, CopyId, type ChipTone } from './Chip'
+export { ConfirmPanel, ConfirmPopover } from './ConfirmPopover'
+export { EmptyState, ErrorState, FilteredEmpty } from './EmptyState'
+export { Field, Input, SearchInput, Segmented, Select, Switch, Textarea, type SegmentedOption } from './Input'
+export { NavGroup } from './NavGroup'
+export { PageHeader } from './PageHeader'
+export { RelativeTime } from './RelativeTime'
+export { RowActions, type RowAction } from './RowActions'
+export { FactList, Sheet, SheetSection } from './Sheet'
+export { CardGridSkeleton, ListSkeleton, SheetSkeleton, Skeleton, TableSkeleton, TimelineSkeleton } from './Skeleton'
+export { Spinner } from './Spinner'
+export { Row, SelectBox, SortHeader, Table } from './Table'
+export { ToastProvider, useToast, type ToastOptions } from './Toast'
+export { ErrorBanner } from '../ErrorBanner'
+export { StatusBadge } from '../StatusBadge'

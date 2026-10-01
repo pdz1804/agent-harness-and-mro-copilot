@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from agent_harness import db, state
 from agent_harness.deps import CurrentUser, current_user, require
 from agent_harness.routers.runs import owner_scope
-from agent_harness.routers.sessions import new_session_title
+from agent_harness.routers.sessions import new_session_title, resolve_session_agent_id
 
 router = APIRouter()
 
@@ -66,11 +66,15 @@ def trigger_automations(service_name: str, status: str) -> None:
             now = datetime.now(timezone.utc).isoformat()
             session_id = uuid.uuid4().hex[:12]
             automation_owner_id = automation.get("owner_id", "u_admin")
+            # Same default-agent resolution as a manual run, so the session,
+            # run, Logs and eval rows name the agent instead of "Unassigned".
+            agent_id = resolve_session_agent_id(None)
             db.create_session(
                 session_id,
                 new_session_title(automation["objective_template"]),
                 now,
                 owner_id=automation_owner_id,
+                agent_id=agent_id,
             )
             state.registry.start_run(
                 objective=automation["objective_template"],
@@ -79,6 +83,7 @@ def trigger_automations(service_name: str, status: str) -> None:
                 session_id=session_id,
                 triggered_by_automation_id=automation["id"],
                 owner_id=automation_owner_id,
+                agent_id=agent_id,
             )
             db.touch_session(session_id, now, "running")
         except Exception:  # noqa: BLE001 - one bad automation must not block the others

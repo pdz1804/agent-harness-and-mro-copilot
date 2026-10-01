@@ -94,6 +94,24 @@ def test_build_transcript_truncates_long_tool_results():
     assert "truncated" in transcript
 
 
+def test_build_transcript_handles_a_validation_error_with_no_started_call():
+    # Invalid tool arguments are rejected before the call starts, so the
+    # step has a tool_validation_error but no tool_call_started; scoring such
+    # a run used to raise KeyError('result').
+    run = {
+        "objective": "build me a dashboard",
+        "history": [
+            {"event_type": "tool_validation_error", "step": 1, "data": {"tool_name": "create_dashboard", "args": {"name": "x"}, "error": "config missing"}},
+            {"event_type": "tool_call_started", "step": 2, "data": {"tool_name": "create_dashboard", "args": {"name": "x"}}},
+            {"event_type": "tool_call_result", "step": 2, "data": {"tool_name": "create_dashboard", "output": {"status": "created"}}},
+            {"event_type": "final_answer", "step": 3, "data": {"final_answer": "Created."}},
+        ],
+    }
+    transcript = judge.build_transcript(run)
+    assert "create_dashboard(args={'name': 'x'}) -> config missing" in transcript
+    assert '"status": "created"' in transcript
+
+
 def test_build_transcript_includes_skill_routing_when_present():
     run = _tool_call_run()
     run["history"].insert(

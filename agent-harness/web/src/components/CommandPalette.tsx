@@ -4,9 +4,9 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { ChatSession } from '../lib/api-types'
 import { isPaletteShortcut, moveIndex, rankItems, type PaletteItem } from '../lib/command-palette'
-import { PALETTE_PAGES } from './nav-config'
+import { PALETTE_ACTIONS, PALETTE_PAGES } from './nav-config'
 
-const GROUP_ORDER: PaletteItem['group'][] = ['Approvals', 'Pages', 'Sessions']
+const GROUP_ORDER: PaletteItem['group'][] = ['Approvals', 'Actions', 'Pages', 'Sessions']
 
 function sessionItems(sessions: ChatSession[]): PaletteItem[] {
   return sessions.map((s) => ({
@@ -71,6 +71,7 @@ export function CommandPalette() {
 
   const items = useMemo<PaletteItem[]>(
     () => [
+      ...PALETTE_ACTIONS.map((a) => ({ id: `action:${a.to}`, label: a.label, to: a.to, group: 'Actions' as const, keywords: a.keywords })),
       ...PALETTE_PAGES.map((p) => ({ id: `page:${p.to}`, label: p.label, to: p.to, group: 'Pages' as const, keywords: p.keywords })),
       ...sessionItems(sessions),
     ],
@@ -100,9 +101,9 @@ export function CommandPalette() {
   const activeId = ordered[active] ? `palette-option-${ordered[active].id}` : undefined
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh]" role="presentation">
-      <button type="button" aria-label="Close command palette" className="absolute inset-0 animate-fade bg-zinc-950/25 backdrop-blur-[2px]" onClick={close} />
-      <div role="dialog" aria-modal="true" aria-label="Command palette" className="relative w-full max-w-xl animate-rise overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-[var(--shadow-xl)]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh]" role="presentation" data-command-palette="">
+      <button type="button" aria-label="Close command palette" className="absolute inset-0 animate-fade bg-zinc-950/20" onClick={close} />
+      <div role="dialog" aria-modal="true" aria-label="Command palette" className="ui-glass relative w-full max-w-xl animate-pop overflow-hidden rounded-[20px]">
         <div className="flex items-center gap-2.5 border-b border-[var(--color-line)] px-4">
           <MagnifyingGlass size={16} weight="bold" className="shrink-0 text-zinc-500" aria-hidden="true" />
           <input
@@ -114,8 +115,8 @@ export function CommandPalette() {
             aria-expanded="true"
             aria-controls="palette-listbox"
             aria-activedescendant={activeId}
-            aria-label="Jump to a page or session"
-            placeholder="Jump to a page or session…"
+            aria-label="Search pages, sessions and actions"
+            placeholder="Search pages, sessions and actions…"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value)
@@ -155,8 +156,8 @@ export function CommandPalette() {
                   tabIndex={-1}
                   onMouseMove={() => setActive(index)}
                   onClick={() => choose(item)}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-100 ${
-                    index === active ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-700'
+                  className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left text-sm transition-colors duration-100 ${
+                    index === active ? 'bg-white text-zinc-950 shadow-[var(--shadow-xs)] ring-1 ring-[var(--color-line)]' : 'text-zinc-700'
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
@@ -166,8 +167,8 @@ export function CommandPalette() {
             )
           })}
         </ul>
-        <p className="flex items-center gap-1.5 border-t border-[var(--color-line)] bg-zinc-50/70 px-4 py-2 text-xs text-zinc-500">
-          <kbd className="ui-kbd">↑↓</kbd> move · <kbd className="ui-kbd">Enter</kbd> open · <kbd className="ui-kbd">Ctrl K</kbd> toggle
+        <p className="flex items-center gap-1.5 border-t border-[var(--color-line)] px-4 py-2 text-xs text-zinc-500">
+          <kbd className="ui-kbd">↑↓</kbd> move · <kbd className="ui-kbd">Enter</kbd> open · <kbd className="ui-kbd">Ctrl K</kbd> toggle · <kbd className="ui-kbd">?</kbd> shortcuts
         </p>
       </div>
     </div>

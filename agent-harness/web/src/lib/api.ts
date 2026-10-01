@@ -143,6 +143,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+/** Human copy for a failed call: the server's message when it sent one,
+ * otherwise `fallback` ("Couldn't archive the session."). */
+export function errorText(err: unknown, fallback: string): string {
+  return err instanceof ApiError && err.message ? err.message : fallback
+}
+
 export interface StartRunInput {
   objective: string
   max_steps?: number
@@ -182,6 +188,10 @@ export const api = {
   acknowledgeIncident: (incidentId: string) =>
     request<Incident>(`/incidents/${encodeURIComponent(incidentId)}/acknowledge`, { method: 'POST' }),
 
+  /** resolved -> acknowledged (the Undo of a resolve). 409 unless resolved. */
+  reopenIncident: (incidentId: string) =>
+    request<Incident>(`/incidents/${encodeURIComponent(incidentId)}/reopen`, { method: 'POST' }),
+
   resolveIncident: (incidentId: string, note: string) =>
     request<Incident>(`/incidents/${encodeURIComponent(incidentId)}/resolve`, {
       method: 'POST',
@@ -197,6 +207,9 @@ export const api = {
     request<KBDocDetail>('/kb', { method: 'POST', body: JSON.stringify(input) }),
 
   deleteKbDoc: (docId: string) => request<void>(`/kb/${encodeURIComponent(docId)}`, { method: 'DELETE' }),
+
+  /** Undo a delete (soft-deleted rows are kept for the retention window). */
+  restoreKbDoc: (docId: string) => request<KBDocDetail>(`/kb/${encodeURIComponent(docId)}/restore`, { method: 'POST' }),
 
   reindexKb: () => request<KBReindexResult>('/kb/reindex', { method: 'POST' }),
 
@@ -261,6 +274,9 @@ export const api = {
   deleteSession: (sessionId: string) =>
     request<void>(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
 
+  restoreSession: (sessionId: string) =>
+    request<SessionDetail>(`/sessions/${encodeURIComponent(sessionId)}/restore`, { method: 'POST' }),
+
   listPendingApprovals: () => request<PendingApprovalItem[]>('/approvals/pending'),
 
   getRunMemories: (runId: string) => request<RunMemories>(`/runs/${encodeURIComponent(runId)}/memories`),
@@ -297,6 +313,9 @@ export const api = {
 
   deleteMemory: (memoryId: string) =>
     request<void>(`/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' }),
+
+  restoreMemory: (memoryId: string) =>
+    request<Memory>(`/memories/${encodeURIComponent(memoryId)}/restore`, { method: 'POST' }),
 
   createSession: (title?: string, agentId?: string) =>
     request<ChatSession>('/sessions', {
@@ -371,6 +390,9 @@ export const api = {
 
   deletePrompt: (promptId: string) =>
     request<void>(`/prompts/${encodeURIComponent(promptId)}`, { method: 'DELETE' }),
+
+  restorePrompt: (promptId: string) =>
+    request<PromptDetail>(`/prompts/${encodeURIComponent(promptId)}/restore`, { method: 'POST' }),
 
   createPromptVersion: (
     promptId: string,
@@ -476,6 +498,9 @@ export const api = {
 
   deleteDashboard: (dashboardId: string) =>
     request<void>(`/dashboards/${encodeURIComponent(dashboardId)}`, { method: 'DELETE' }),
+
+  restoreDashboard: (dashboardId: string) =>
+    request<Dashboard>(`/dashboards/${encodeURIComponent(dashboardId)}/restore`, { method: 'POST' }),
 
   createWidget: (
     dashboardId: string,
@@ -593,6 +618,8 @@ export const api = {
   deleteSkill: (skillId: string) =>
     request<void>(`/skills/${encodeURIComponent(skillId)}`, { method: 'DELETE' }),
 
+  restoreSkill: (skillId: string) => request<Skill>(`/skills/${encodeURIComponent(skillId)}/restore`, { method: 'POST' }),
+
   listAgents: () => request<Agent[]>('/agents'),
 
   getAgentStarters: (agentId: string) =>
@@ -640,6 +667,8 @@ export const api = {
 
   deleteAgent: (agentId: string) =>
     request<void>(`/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' }),
+
+  restoreAgent: (agentId: string) => request<Agent>(`/agents/${encodeURIComponent(agentId)}/restore`, { method: 'POST' }),
 
   cloneAgent: (agentId: string) =>
     request<Agent>(`/agents/${encodeURIComponent(agentId)}/clone`, { method: 'POST' }),

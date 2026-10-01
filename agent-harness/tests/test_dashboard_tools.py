@@ -267,6 +267,29 @@ def test_widget_validation_happens_at_the_input_boundary() -> None:
         CreateDashboardInput(name="x", widgets=[{**SEVERITY_WIDGET, "config": {}}])
 
 
+@pytest.mark.parametrize(
+    ("kind", "needs"),
+    [("bar", "x_col"), ("line", "y_cols"), ("pie", "label_col"), ("stat", "value_col"), ("list", "title_col")],
+)
+def test_a_chart_widget_without_config_gets_an_actionable_error(kind: str, needs: str) -> None:
+    # The model's usual slip is omitting `config`; the error must name the
+    # keys to add, not relay a nested union validation dump.
+    with pytest.raises(ValueError, match=rf"needs a config naming the query's columns, e\.g\. config=.*{needs}") as info:
+        CreateDashboardInput(name="x", widgets=[{**SEVERITY_WIDGET, "kind": kind, "config": {}}])
+    assert "tagged-union" not in str(info.value)
+
+
+def test_a_table_widget_needs_no_config() -> None:
+    spec = CreateDashboardInput(name="x", widgets=[{**SEVERITY_WIDGET, "kind": "table", "config": {}}])
+    assert spec.widgets[0].kind == "table"
+
+
+def test_the_config_field_documents_every_kind_for_the_model() -> None:
+    description = CreateDashboardInput.model_json_schema()["$defs"]["WidgetSpec"]["properties"]["config"]["description"]
+    for key in ("value_col", "x_col", "y_cols", "label_col", "title_col"):
+        assert key in description
+
+
 def test_add_widget_extends_an_existing_dashboard_for_its_owner_only(monkeypatch) -> None:
     created = client.post("/api/v1/dashboards", json={"name": "Mine", "template_key": "blank"}, headers=EDITOR).json()
     add_call = {

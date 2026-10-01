@@ -7,7 +7,7 @@ import { JsonTree } from '../ui/JsonTree'
 
 type Tone = 'running' | 'attention' | 'success' | 'danger' | 'muted'
 
-// Same tile palette as ToolCallBlock, so activity rows and tool rows read as one list.
+// Same tile palette as ToolCallCard, so activity rows and tool rows read as one list.
 const TILE: Record<Tone, string> = {
   running: 'bg-sky-50 text-sky-600 ring-sky-200',
   attention: 'bg-amber-50 text-amber-600 ring-amber-200',
@@ -88,7 +88,7 @@ function ActivityRow({ event }: { event: AgentEvent }) {
 }
 
 /** The agent's activity for one turn as compact rows (glyph · what happened ·
- * step · latency), in the same visual language as `ToolCallBlock`. Each row
+ * step · latency), in the same visual language as `ToolCallCard`. Each row
  * expands to its event data. */
 export function ActivityList({ events }: { events: AgentEvent[] }) {
   if (events.length === 0) return <p className="px-1 text-[13px] text-zinc-500">No activity recorded yet.</p>

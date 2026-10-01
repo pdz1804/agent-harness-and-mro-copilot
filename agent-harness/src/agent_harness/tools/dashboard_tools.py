@@ -55,6 +55,17 @@ _SCHEMA_HINT = (
 )
 
 
+# A minimal valid config per kind that needs one (table needs none).
+_CONFIG_EXAMPLE: dict[str, str] = {
+    "stat": '{"value_col": "<count column>"}',
+    "line": '{"x_col": "<x column>", "y_cols": ["<series column>"]}',
+    "bar": '{"x_col": "<category column>", "y_cols": ["<value column>"]}',
+    "area": '{"x_col": "<x column>", "y_cols": ["<series column>"]}',
+    "pie": '{"label_col": "<label column>", "value_col": "<value column>"}',
+    "list": '{"title_col": "<title column>"}',
+}
+
+
 class WidgetSpec(BaseModel):
     kind: WidgetKindName
     title: str = Field(min_length=1, max_length=120)
@@ -63,7 +74,13 @@ class WidgetSpec(BaseModel):
         description="A single read-only SELECT. Every column named in `config` must be returned by it.",
     )
     config: dict[str, Any] = Field(
-        default_factory=dict, description="Typed per-kind config mapping result columns onto the visual."
+        default_factory=dict,
+        description=(
+            "Required for every kind except table: maps result columns onto the visual. "
+            'stat {"value_col": "n"}; line|bar|area {"x_col": "day", "y_cols": ["open", "resolved"]}; '
+            'pie {"label_col": "severity", "value_col": "n"}; list {"title_col": "title"}; table {}. '
+            "Use the column names (aliases) your query returns."
+        ),
     )
     col_span: Literal[3, 4, 6, 12] = Field(default=6, description="Width out of a 12-column grid.")
 
@@ -72,6 +89,13 @@ class WidgetSpec(BaseModel):
         # Same two static gates the REST route applies; a failure surfaces to
         # the LLM as a tool_validation_error so it can fix the widget and
         # retry — before any approval is requested.
+        if not self.config and self.kind in _CONFIG_EXAMPLE:
+            # The common LLM slip: no config at all. Say exactly what to add
+            # instead of relaying a nested pydantic union error.
+            raise ValueError(
+                f"widget '{self.title}': a '{self.kind}' widget needs a config naming the query's columns, "
+                f"e.g. config={_CONFIG_EXAMPLE[self.kind]}"
+            )
         try:
             validate_read_only_sql(self.sql_query)
             validate_config(self.kind, self.config)

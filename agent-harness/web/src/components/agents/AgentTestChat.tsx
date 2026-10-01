@@ -6,7 +6,7 @@ import { ApiError, api } from '../../lib/api'
 import { TERMINAL_STATUSES, type Agent, type RunSnapshot, type RunStatus, type StarterPrompt } from '../../lib/api-types'
 import { ChatTurn } from '../chat/ChatTurn'
 import { Composer } from '../chat/Composer'
-import { ErrorBanner } from '../ErrorBanner'
+import { Button, ErrorBanner, LinkButton } from '../ui'
 
 const MODE_LABEL: Record<Agent['skill_mode'], string> = { none: 'None', assigned: 'Assigned', auto: 'Auto' }
 
@@ -31,7 +31,7 @@ function TestTurn({
     if (snapshot) onSnapshot(runId, snapshot)
   }, [snapshot, runId, onSnapshot])
 
-  if (!snapshot) return error ? <ErrorBanner message={error} /> : <p className="text-xs text-zinc-600">Starting…</p>
+  if (!snapshot) return error ? <ErrorBanner message={error} /> : <p className="text-xs text-zinc-600" role="status">Starting…</p>
   return (
     <ChatTurn
       snapshot={snapshot}
@@ -104,7 +104,7 @@ export function AgentTestChat({ agent, promptLabel }: { agent: Agent; promptLabe
       setThread((t) => ({ sessionId: response.session_id, runIds: [...t.runIds, response.run_id] }))
     } catch (err) {
       setValue(text)
-      setError(err instanceof ApiError ? err.message : 'Failed to start the test run.')
+      setError(err instanceof ApiError ? err.message : 'Could not start the test run.')
     } finally {
       setSending(false)
     }
@@ -134,20 +134,20 @@ export function AgentTestChat({ agent, promptLabel }: { agent: Agent; promptLabe
         </p>
         <div className="flex items-center gap-2">
           {lastRunId && (
-            <a href={`/runs/${lastRunId}`} className="ui-btn-link inline-flex items-center gap-1 text-xs">
+            <LinkButton to={`/runs/${lastRunId}`} variant="ghost" size="sm" icon={<ArrowSquareOut size={13} weight="bold" />}>
               Open full chat
-              <ArrowSquareOut size={12} weight="bold" aria-hidden="true" />
-            </a>
+            </LinkButton>
           )}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Trash size={13} weight="bold" />}
             onClick={reset}
             disabled={thread.runIds.length === 0 || running}
-            className="ui-btn ui-btn-ghost ui-btn-sm"
+            title={running ? 'Wait for the run to finish, or stop it first' : 'Clear this thread and start a fresh test'}
           >
-            <Trash size={12} weight="bold" aria-hidden="true" />
             New test
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -165,7 +165,7 @@ export function AgentTestChat({ agent, promptLabel }: { agent: Agent; promptLabe
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="max-h-[52vh] min-h-48 overflow-y-auto rounded-md border border-zinc-200 bg-white p-3"
+        className="ui-card max-h-[52vh] min-h-48 overflow-y-auto p-3"
       >
         <div ref={contentRef} className="space-y-5">
           {thread.runIds.length === 0 ? (
@@ -186,15 +186,15 @@ export function AgentTestChat({ agent, promptLabel }: { agent: Agent; promptLabe
       {starters.length > 0 && thread.runIds.length === 0 && (
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Starter prompts">
           {starters.map((s) => (
-            <button
+            <Button
               key={`${s.skill_slug}:${s.text}`}
-              type="button"
+              size="sm"
               onClick={() => setValue(s.text)}
               title={s.skill_slug ? `Suggested for /${s.skill_slug}` : undefined}
-              className="ui-btn ui-btn-secondary ui-btn-sm h-auto max-w-full whitespace-normal py-1 text-left [overflow-wrap:anywhere]"
+              className="!h-auto max-w-full !whitespace-normal py-1 text-left [overflow-wrap:anywhere]"
             >
               {s.text}
-            </button>
+            </Button>
           ))}
         </div>
       )}

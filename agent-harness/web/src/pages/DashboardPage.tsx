@@ -1,115 +1,213 @@
-import { ArrowClockwise, Copy, PencilSimple, PlusCircle, Robot, Trash } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState } from 'react'
+import { ArrowClockwise, ArrowDown, ArrowUp, ChartBar, Copy, Lock, PencilSimple, Plus, Robot, ShareNetwork, Trash } from '@phosphor-icons/react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ErrorBanner } from '../components/ErrorBanner'
-import { Skeleton } from '../components/Skeleton'
-import { WidgetEditor } from '../components/widgets/WidgetEditor'
 import { WidgetBody } from '../components/widgets/WidgetBody'
+import { WidgetEditor } from '../components/widgets/WidgetEditor'
 import { WidgetFrame } from '../components/widgets/WidgetFrame'
+import {
+  Button,
+  CardGridSkeleton,
+  Chip,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  RelativeTime,
+  RowActions,
+  Select,
+  Skeleton,
+  useToast,
+  type RowAction,
+} from '../components/ui'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { canWriteResource, disabledReason, useMe } from '../hooks/useMe'
-import { ApiError, api } from '../lib/api'
+import { useUrlState } from '../hooks/useUrlState'
+import { api, errorText } from '../lib/api'
 import type { Dashboard, DashboardWidget } from '../lib/api-types'
 import { AUTO_REFRESH_CHOICES, autoRefreshLabel, normalizeAutoRefresh } from '../lib/dashboard-refresh'
-import { PageHeader } from '../components/ui/PageHeader'
-import { ConfirmButton } from '../components/ui/ConfirmButton'
+import { moveId } from '../lib/dashboards-model'
+import { UNDO_WINDOW_MS, deferAction } from '../lib/deferred-action'
 
-function renderWidgetBody(widget: DashboardWidget) {
-  return <WidgetBody widget={widget} />
+function withoutId(set: Set<string>, id: string): Set<string> {
+  const next = new Set(set)
+  next.delete(id)
+  return next
 }
 
-/** One dashboard's grid: view mode by default, "Edit" toggles add/edit/
- * delete/reorder controls. Refresh (dashboard-level or per-widget) always
- * re-executes the real stored SQL — see `agent_harness.repos.dashboards`.
- * A widget that errors (bad query, shape mismatch, timeout) renders its
- * error in place; every other widget still renders normally
- * (`WidgetFrame` never lets one widget's failure affect its siblings). */
+/** One dashboard's grid. Refresh (dashboard-level or per-widget) always
+ * re-executes the real stored SQL. A widget that errors (bad query, shape
+ * mismatch, timeout) renders its error in place; every other widget still
+ * renders (`WidgetFrame` never lets one failure affect its siblings). The
+ * widget editor is a sheet deep-linked with `?widget=<id>` (`?widget=new`
+ * adds one). Widget deletes have no server-side restore, so they are
+ * optimistic and held for the Undo window (`deferAction`). */
 export function DashboardPage() {
   const { dashboardId } = useParams<{ dashboardId: string }>()
   const navigate = useNavigate()
+  const toast = useToast()
+  const [widgetParam, setWidgetParam] = useUrlState('widget')
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshingAll, setRefreshingAll] = useState(false)
-  const [refreshingWidgets, setRefreshingWidgets] = useState<Set<string>>(new Set())
-  const [editMode, setEditMode] = useState(false)
-  const [editingWidget, setEditingWidget] = useState<DashboardWidget | 'new' | null>(null)
+  const [refreshingWidgets, setRefreshingWidgets] = useState<Set<string>>(() => new Set())
+  const [hiddenWidgets, setHiddenWidgets] = useState<Set<string>>(() => new Set())
   const [autoSeconds, setAutoSeconds] = useState(0)
   const [lastClientRefresh, setLastClientRefresh] = useState<string | null>(null)
 
   const { me } = useMe()
-  const canWrite = canWriteResource(me, dashboard)
-  const writeTitle = canWrite ? undefined : disabledReason(me, 'mutate_artifacts')
+  const hasMutatePermission = me ? me.permissions.includes('mutate_artifacts') : true
+  const canWrite = hasMutatePermission && canWriteResource(me, dashboard)
+  const writeReason = hasMutatePermission ? 'Only the owner or an admin can edit this dashboard.' : disabledReason(me, 'mutate_artifacts')
+  const writeTitle = canWrite ? undefined : writeReason
+  useDocumentTitle(dashboard?.name ?? null)
 
   const load = useCallback(() => {
     if (!dashboardId) return
     setError(null)
-    api
-      .getDashboard(dashboardId)
-      .then((d) => {
+    api.getDashboard(dashboardId).then(
+      (d) => {
         setDashboard(d)
         setAutoSeconds(normalizeAutoRefresh(d.auto_refresh_seconds))
-      })
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : 'Failed to load dashboard.'))
+      },
+      (err: unknown) => setError(errorText(err, 'Could not load this dashboard.')),
+    )
   }, [dashboardId])
 
   useEffect(() => {
     setDashboard(null)
+    setLastClientRefresh(null)
     load()
   }, [load])
 
-  const handleRefreshAll = useCallback(async () => {
-    if (!dashboardId) return
-    setRefreshingAll(true)
-    try {
-      const updated = await api.refreshDashboard(dashboardId)
-      setDashboard(updated)
-      // Workaround for a known backend ordering bug (routers/dashboards.py
-      // fetches the dashboard row *before* refresh_dashboard() bumps
-      // last_refreshed_at, so the response still carries the pre-refresh
-      // value): track the refresh client-side so the header is honest even
-      // though the server's own timestamp is stale this call. See phase-08
-      // report for the one-line backend fix.
-      setLastClientRefresh(new Date().toISOString())
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to refresh dashboard.')
-    } finally {
-      setRefreshingAll(false)
-    }
-  }, [dashboardId])
+  const visibleWidgets = useMemo(() => (dashboard ? dashboard.widgets.filter((w) => !hiddenWidgets.has(w.id)) : []), [dashboard, hiddenWidgets])
 
-  const handleRefreshWidget = async (widgetId: string) => {
+  const handleRefreshAll = useCallback(
+    async (manual: boolean) => {
+      if (!dashboardId) return
+      setRefreshingAll(true)
+      try {
+        const updated = await api.refreshDashboard(dashboardId)
+        setDashboard(updated)
+        // The refresh response still carries the pre-refresh `last_refreshed_at`
+        // (the router reads the row before the refresh bumps it), so the header
+        // tracks the refresh client-side to stay honest.
+        setLastClientRefresh(new Date().toISOString())
+        if (manual) {
+          const failing = updated.widgets.filter((w) => w.last_error).length
+          toast({
+            title: 'Dashboard refreshed',
+            description: `${updated.widgets.length} widget${updated.widgets.length === 1 ? '' : 's'}${failing ? ` · ${failing} with an error` : ''}`,
+          })
+        }
+      } catch (err) {
+        toast({ tone: 'error', title: "Couldn't refresh the dashboard", description: errorText(err, 'Try again.') })
+      } finally {
+        setRefreshingAll(false)
+      }
+    },
+    [dashboardId, toast],
+  )
+
+  const handleRefreshWidget = async (widget: DashboardWidget) => {
     if (!dashboardId) return
-    setRefreshingWidgets((prev) => new Set(prev).add(widgetId))
+    setRefreshingWidgets((prev) => new Set(prev).add(widget.id))
     try {
-      const updated = await api.refreshWidget(dashboardId, widgetId)
-      setDashboard((d) => (d ? { ...d, widgets: d.widgets.map((w) => (w.id === widgetId ? updated : w)) } : d))
+      const updated = await api.refreshWidget(dashboardId, widget.id)
+      setDashboard((d) => (d ? { ...d, widgets: d.widgets.map((w) => (w.id === widget.id ? updated : w)) } : d))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to refresh widget.')
+      toast({ tone: 'error', title: `Couldn't refresh “${widget.title}”`, description: errorText(err, 'Try again.') })
     } finally {
-      setRefreshingWidgets((prev) => {
-        const next = new Set(prev)
-        next.delete(widgetId)
-        return next
+      setRefreshingWidgets((prev) => withoutId(prev, widget.id))
+    }
+  }
+
+  /** Optimistic removal; the request is held for the Undo window. */
+  const deleteWidget = (widget: DashboardWidget) => {
+    if (!dashboardId) return
+    setHiddenWidgets((prev) => new Set(prev).add(widget.id))
+    if (widgetParam === widget.id) setWidgetParam('')
+    const cancel = deferAction(
+      `widget-delete:${widget.id}`,
+      async () => {
+        await api.deleteWidget(dashboardId, widget.id)
+        setDashboard((d) => (d ? { ...d, widgets: d.widgets.filter((w) => w.id !== widget.id) } : d))
+        setHiddenWidgets((prev) => withoutId(prev, widget.id))
+      },
+      UNDO_WINDOW_MS,
+      (err) => {
+        setHiddenWidgets((prev) => withoutId(prev, widget.id))
+        toast({ tone: 'error', title: `Couldn't delete “${widget.title}”`, description: errorText(err, 'It is back on the dashboard.') })
+      },
+    )
+    toast({
+      title: `Deleted “${widget.title}”`,
+      duration: UNDO_WINDOW_MS - 500,
+      action: {
+        label: 'Undo',
+        run: () => {
+          if (!cancel()) throw new Error('It was already saved')
+          setHiddenWidgets((prev) => withoutId(prev, widget.id))
+        },
+      },
+    })
+  }
+
+  /** Move a widget one place and persist the whole order. */
+  const moveWidget = async (widget: DashboardWidget, delta: -1 | 1) => {
+    if (!dashboardId || !dashboard) return
+    const before = visibleWidgets.map((w) => w.id)
+    const after = moveId(before, widget.id, delta)
+    if (after === before) return
+    const apply = async (ids: string[]) => {
+      // Widgets held for deletion keep their relative place at the end.
+      const hidden = dashboard.widgets.filter((w) => hiddenWidgets.has(w.id)).map((w) => w.id)
+      const updated = await api.reorderWidgets(dashboardId, [...ids, ...hidden])
+      setDashboard((d) => (d ? { ...d, widgets: updated.widgets } : d))
+    }
+    const byId = new Map(dashboard.widgets.map((w) => [w.id, w]))
+    // Optimistic: show the new order while the request is in flight.
+    setDashboard((d) => (d ? { ...d, widgets: [...after.map((id) => byId.get(id)!), ...d.widgets.filter((w) => hiddenWidgets.has(w.id))] } : d))
+    try {
+      await apply(after)
+      toast({
+        title: `Moved “${widget.title}” ${delta < 0 ? 'earlier' : 'later'}`,
+        action: { label: 'Undo', run: () => apply(before) },
       })
-    }
-  }
-
-  const handleDeleteWidget = async (widget: DashboardWidget) => {
-    if (!dashboardId) return
-    try {
-      await api.deleteWidget(dashboardId, widget.id)
-      load()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to delete widget.')
+      setDashboard((d) => (d ? { ...d, widgets: [...before.map((id) => byId.get(id)!), ...d.widgets.filter((w) => hiddenWidgets.has(w.id))] } : d))
+      toast({ tone: 'error', title: `Couldn't move “${widget.title}”`, description: errorText(err, 'Try again.') })
     }
   }
 
-  const handleDeleteDashboard = async () => {
+  const deleteDashboard = async () => {
+    if (!dashboardId || !dashboard) return
+    const { id, name } = dashboard
+    try {
+      await api.deleteDashboard(id)
+    } catch (err) {
+      toast({ tone: 'error', title: `Couldn't delete “${name}”`, description: errorText(err, 'Try again.') })
+      return
+    }
+    navigate('/dashboards')
+    toast({
+      title: `Deleted “${name}”`,
+      description: 'Kept in the trash for 7 days.',
+      action: {
+        label: 'Undo',
+        run: async () => {
+          await api.restoreDashboard(id)
+          toast({ title: `Restored “${name}”`, action: { label: 'Open', run: () => navigate(`/dashboards/${id}`) } })
+        },
+      },
+    })
+  }
+
+  const duplicate = async () => {
     if (!dashboardId || !dashboard) return
     try {
-      await api.deleteDashboard(dashboardId)
-      navigate('/dashboards')
+      const copy = await api.duplicateDashboard(dashboardId)
+      toast({ title: `Duplicated as “${copy.name}”`, action: { label: 'Open', run: () => navigate(`/dashboards/${copy.id}`) } })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to delete dashboard.')
+      toast({ tone: 'error', title: `Couldn't duplicate “${dashboard.name}”`, description: errorText(err, 'Try again.') })
     }
   }
 
@@ -118,34 +216,78 @@ export function DashboardPage() {
   // access can still pick one for their own view (not persisted).
   useEffect(() => {
     if (autoSeconds === 0) return
-    const id = setInterval(() => void handleRefreshAll(), autoSeconds * 1000)
+    const id = setInterval(() => void handleRefreshAll(false), autoSeconds * 1000)
     return () => clearInterval(id)
   }, [autoSeconds, handleRefreshAll])
 
   const changeAutoRefresh = async (seconds: number) => {
+    const previous = autoSeconds
     setAutoSeconds(seconds)
     if (!dashboardId || !canWrite) return
+    const save = (value: number) => api.updateDashboard(dashboardId, { auto_refresh_seconds: value })
     try {
-      await api.updateDashboard(dashboardId, { auto_refresh_seconds: seconds })
+      await save(seconds)
+      toast({
+        title: seconds === 0 ? 'Auto-refresh turned off' : `Auto-refresh ${autoRefreshLabel(seconds).toLowerCase()}`,
+        action: {
+          label: 'Undo',
+          run: async () => {
+            await save(previous)
+            setAutoSeconds(previous)
+          },
+        },
+      })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save the refresh interval.')
+      setAutoSeconds(previous)
+      toast({ tone: 'error', title: "Couldn't save the refresh interval", description: errorText(err, 'Try again.') })
     }
   }
 
-  const handleDuplicate = async () => {
-    if (!dashboardId) return
-    try {
-      const copy = await api.duplicateDashboard(dashboardId)
-      navigate(`/dashboards/${copy.id}`)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to duplicate dashboard.')
-    }
+  const openWidget = widgetParam && widgetParam !== 'new' ? (visibleWidgets.find((w) => w.id === widgetParam) ?? null) : null
+  const openIndex = openWidget ? visibleWidgets.findIndex((w) => w.id === openWidget.id) : -1
+  const stepWidget = (delta: 1 | -1) => {
+    if (visibleWidgets.length < 2 || openIndex < 0) return
+    setWidgetParam(visibleWidgets[(openIndex + delta + visibleWidgets.length) % visibleWidgets.length].id)
   }
+
+  // A deep link to a widget that no longer exists drops the parameter.
+  useEffect(() => {
+    if (dashboard && widgetParam && widgetParam !== 'new' && !visibleWidgets.some((w) => w.id === widgetParam)) setWidgetParam('')
+  }, [dashboard, visibleWidgets, widgetParam, setWidgetParam])
+
+  const widgetActions = (widget: DashboardWidget, index: number): RowAction[] => [
+    { label: canWrite ? 'Edit widget' : 'View widget', icon: <PencilSimple size={14} />, onSelect: () => setWidgetParam(widget.id) },
+    { label: 'Refresh now', icon: <ArrowClockwise size={14} />, onSelect: () => handleRefreshWidget(widget) },
+    {
+      label: 'Move earlier',
+      icon: <ArrowUp size={14} />,
+      disabled: !canWrite || index === 0,
+      disabledReason: !canWrite ? writeReason : 'Already first.',
+      onSelect: () => moveWidget(widget, -1),
+    },
+    {
+      label: 'Move later',
+      icon: <ArrowDown size={14} />,
+      disabled: !canWrite || index === visibleWidgets.length - 1,
+      disabledReason: !canWrite ? writeReason : 'Already last.',
+      onSelect: () => moveWidget(widget, 1),
+    },
+    {
+      label: 'Delete widget',
+      icon: <Trash size={14} />,
+      destructive: true,
+      disabled: !canWrite,
+      disabledReason: writeReason,
+      confirm: { title: `Delete widget “${widget.title}”?`, description: 'You can undo for a few seconds.', confirmLabel: 'Delete widget' },
+      onSelect: () => deleteWidget(widget),
+    },
+  ]
 
   if (error && !dashboard) {
     return (
-      <div className="mx-auto max-w-3xl">
-        <ErrorBanner message={error} onRetry={load} />
+      <div className="mx-auto max-w-6xl">
+        <PageHeader title="Dashboard" back={{ to: '/dashboards', label: 'All dashboards' }} />
+        <ErrorState message={error} onRetry={load} />
       </div>
     )
   }
@@ -153,15 +295,14 @@ export function DashboardPage() {
   if (!dashboard) {
     return (
       <div className="mx-auto max-w-6xl">
-        <Skeleton className="h-8 w-64" />
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-12">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-40 w-full rounded-xl md:col-span-6" />
-          ))}
-        </div>
+        <PageHeader title={<Skeleton className="mt-1 h-7 w-64" />} back={{ to: '/dashboards', label: 'All dashboards' }} />
+        <CardGridSkeleton count={4} className="grid grid-cols-1 gap-4 md:grid-cols-2" />
       </div>
     )
   }
+
+  const refreshedAt = lastClientRefresh ?? dashboard.last_refreshed_at
+  const editorWidget = widgetParam === 'new' ? null : openWidget
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -171,129 +312,140 @@ export function DashboardPage() {
         description={dashboard.description || undefined}
         meta={
           <>
-          {dashboard.created_by_run_id && (
-<Link
-                to={`/runs/${dashboard.created_by_run_id}`}
-                className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800 hover:bg-sky-100"
-              >
-                <Robot size={11} weight="bold" />
-                Built by the agent — view the run
+            <Chip icon={dashboard.visibility === 'private' ? <Lock size={11} /> : <ShareNetwork size={11} />}>{dashboard.visibility === 'private' ? 'Private' : 'Shared'}</Chip>
+            <Chip>{`${visibleWidgets.length} widget${visibleWidgets.length === 1 ? '' : 's'}`}</Chip>
+            {dashboard.created_by_run_id && (
+              <Link to={`/runs/${dashboard.created_by_run_id}`} title="Created by the agent in this run" className="rounded-full">
+                <Chip tone="iris" icon={<Robot size={11} weight="bold" />}>
+                  Built by agent
+                </Chip>
               </Link>
-          )}
-          <span>{dashboard.last_refreshed_at || lastClientRefresh
-              ? `Last refreshed ${new Date(dashboard.last_refreshed_at ?? lastClientRefresh!).toLocaleString()}`
-              : 'Never refreshed'}</span>
+            )}
+            <span>
+              {refreshedAt ? (
+                <>
+                  Updated <RelativeTime value={refreshedAt} />
+                </>
+              ) : (
+                'Never refreshed'
+              )}
+            </span>
           </>
         }
         actions={
           <>
-            <select
-            value={autoSeconds}
-            onChange={(e) => void changeAutoRefresh(Number(e.target.value))}
-            name="auto-refresh"
-            className="ui-input"
-            aria-label="Auto-refresh interval"
-          >
-            {AUTO_REFRESH_CHOICES.map((seconds) => (
-              <option key={seconds} value={seconds}>
-                Auto-refresh: {seconds === 0 ? 'off' : autoRefreshLabel(seconds).replace('Every ', '')}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => void handleRefreshAll()}
-            disabled={refreshingAll}
-            className="ui-btn ui-btn-secondary"
-          >
-            <ArrowClockwise size={14} weight="bold" className={refreshingAll ? 'animate-spin' : ''} />
-            {refreshingAll ? 'Refreshing…' : 'Refresh all'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleDuplicate()}
-            disabled={me ? !me.permissions.includes('mutate_artifacts') : false}
-            title="Copy this dashboard (widgets, queries, layout) into a new private one"
-            className="ui-btn ui-btn-secondary"
-          >
-            <Copy size={14} weight="bold" />
-            Duplicate
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditMode((v) => !v)}
-            disabled={!canWrite}
-            title={writeTitle}
-            aria-pressed={editMode}
-            className={`ui-btn ${editMode ? 'ui-btn-primary' : 'ui-btn-secondary'}`}
-          >
-            <PencilSimple size={14} weight="bold" />
-            {editMode ? 'Done editing' : 'Edit'}
-          </button>
-          {editMode && canWrite && (
-            <>
-              <button
-                type="button"
-                onClick={() => setEditingWidget('new')}
-                className="ui-btn ui-btn-primary"
-              >
-                <PlusCircle size={14} weight="bold" />
-                Add widget
-              </button>
-              <ConfirmButton
-                prompt={`Delete dashboard "${dashboard.name}"? This cannot be undone.`}
-                onConfirm={() => void handleDeleteDashboard()}
-                className="ui-btn ui-btn-danger"
-              >
-                <Trash size={13} weight="bold" />
-                Delete dashboard
-              </ConfirmButton>
-            </>
-          )}
+            <Select
+              value={autoSeconds}
+              onChange={(e) => void changeAutoRefresh(Number(e.target.value))}
+              name="auto-refresh"
+              aria-label="Auto-refresh interval"
+              title={canWrite ? 'Saved on the dashboard' : 'Applies to your view only'}
+            >
+              {AUTO_REFRESH_CHOICES.map((seconds) => (
+                <option key={seconds} value={seconds}>
+                  Auto-refresh: {seconds === 0 ? 'off' : autoRefreshLabel(seconds).replace('Every ', '')}
+                </option>
+              ))}
+            </Select>
+            <Button icon={<ArrowClockwise size={14} weight="bold" />} loading={refreshingAll} onClick={() => void handleRefreshAll(true)} title="Re-run every widget's query">
+              Refresh all
+            </Button>
+            <Button variant="primary" icon={<Plus size={14} weight="bold" />} disabled={!canWrite} title={writeTitle} onClick={() => setWidgetParam('new')}>
+              Add widget
+            </Button>
+            <RowActions
+              visibility="always"
+              label={`More actions for “${dashboard.name}”`}
+              items={[
+                {
+                  label: 'Duplicate',
+                  icon: <Copy size={14} />,
+                  disabled: !hasMutatePermission,
+                  disabledReason: disabledReason(me, 'mutate_artifacts'),
+                  onSelect: duplicate,
+                },
+                {
+                  label: 'Delete dashboard',
+                  icon: <Trash size={14} />,
+                  destructive: true,
+                  disabled: !canWrite,
+                  disabledReason: writeReason,
+                  confirm: { title: `Delete “${dashboard.name}”?`, description: 'Its widgets go with it. You can undo for a few seconds.', confirmLabel: 'Delete dashboard' },
+                  onSelect: deleteDashboard,
+                },
+              ]}
+            />
           </>
         }
       />
 
-      {error && (
-        <div className="mt-4">
-          <ErrorBanner message={error} />
-        </div>
-      )}
+      {error && <p className="mb-3 text-xs text-rose-700">{error}</p>}
 
-      {dashboard.widgets.length === 0 ? (
-        <div className="mt-8 rounded-xl border border-dashed border-zinc-300 px-6 py-16 text-center text-sm text-zinc-500">
-          No widgets yet.{' '}
-          <button type="button" onClick={() => setEditingWidget('new')} className="font-medium text-sky-600 hover:underline">
-            Add one
-          </button>
-          .
-        </div>
+      {visibleWidgets.length === 0 ? (
+        <EmptyState
+          icon={<ChartBar size={22} weight="duotone" />}
+          title="No widgets yet"
+          description="Each widget runs a stored read-only query and shows the result as a number, chart, table or list."
+          action={
+            <Button icon={<Plus size={14} weight="bold" />} disabled={!canWrite} title={writeTitle} onClick={() => setWidgetParam('new')}>
+              Add widget
+            </Button>
+          }
+          example="Try: SELECT status, count(*) AS n FROM services GROUP BY status"
+        />
       ) : (
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-12">
-          {dashboard.widgets.map((widget) => (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+          {visibleWidgets.map((widget, index) => (
             <WidgetFrame
               key={widget.id}
               widget={widget}
-              editMode={editMode}
-              refreshing={refreshingWidgets.has(widget.id)}
-              onRefresh={() => void handleRefreshWidget(widget.id)}
-              onEdit={() => setEditingWidget(widget)}
-              onDelete={() => void handleDeleteWidget(widget)}
+              selected={openWidget?.id === widget.id}
+              refreshing={refreshingWidgets.has(widget.id) || (refreshingAll && !widget.last_result)}
+              onRefresh={() => void handleRefreshWidget(widget)}
+              onOpen={() => setWidgetParam(widget.id)}
+              actions={widgetActions(widget, index)}
             >
-              {renderWidgetBody(widget)}
+              <WidgetBody widget={widget} />
             </WidgetFrame>
           ))}
         </div>
       )}
 
-      {editingWidget && (
+      {(widgetParam === 'new' || openWidget) && (
         <WidgetEditor
+          key={editorWidget?.id ?? 'new'}
           dashboardId={dashboard.id}
-          widget={editingWidget === 'new' ? null : editingWidget}
-          onClose={() => setEditingWidget(null)}
-          onSaved={() => {
-            setEditingWidget(null)
+          dashboardName={dashboard.name}
+          widget={editorWidget}
+          position={openWidget ? { index: openIndex, total: visibleWidgets.length } : undefined}
+          canWrite={canWrite}
+          writeReason={writeReason}
+          onClose={() => setWidgetParam('')}
+          onPrev={openWidget && visibleWidgets.length > 1 ? () => stepWidget(-1) : undefined}
+          onNext={openWidget && visibleWidgets.length > 1 ? () => stepWidget(1) : undefined}
+          onDelete={deleteWidget}
+          onSaved={(saved, previous) => {
+            setWidgetParam('')
             load()
+            toast({
+              title: previous ? `Saved “${saved.title}”` : `Added “${saved.title}”`,
+              action: {
+                label: 'Undo',
+                run: async () => {
+                  if (previous) {
+                    await api.updateWidget(dashboard.id, saved.id, {
+                      title: previous.title,
+                      sql_query: previous.sql_query,
+                      config: previous.config,
+                      col_span: previous.col_span,
+                    })
+                  } else {
+                    await api.deleteWidget(dashboard.id, saved.id)
+                  }
+                  load()
+                },
+              },
+            })
           }}
         />
       )}

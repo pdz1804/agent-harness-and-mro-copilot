@@ -201,6 +201,12 @@ def test_retrieve_exposes_dense_and_fused_scores_when_embeddings_work(monkeypatc
     assert top["dense_score"] is not None and top["dense_rank"] is not None and top["fused_score"] > 0
 
 
+def test_retrieve_reports_latency_and_index_size() -> None:
+    result = client.post("/api/v1/kb/retrieve", json={"query": "auth-service outage", "mode": "bm25", "top_k": 3}, headers=VIEWER).json()
+    assert result["latency_ms"] >= 0
+    assert result["indexed_chunks"] >= len(result["hits"]) > 0
+
+
 def test_retrieve_validates_input() -> None:
     assert client.post("/api/v1/kb/retrieve", json={"query": "", "mode": "bm25"}, headers=VIEWER).status_code == 422
     assert client.post("/api/v1/kb/retrieve", json={"query": "x", "mode": "magic"}, headers=VIEWER).status_code == 422

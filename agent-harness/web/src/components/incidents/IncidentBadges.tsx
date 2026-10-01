@@ -1,40 +1,32 @@
-import { CheckCircle, CircleDashed, Eye, Info, Warning, WarningDiamond, WarningOctagon } from '@phosphor-icons/react'
+import { Info, Warning, WarningDiamond, WarningOctagon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 import { statusLabel } from '../../lib/incident-lifecycle'
+import { Chip, type ChipTone } from '../ui'
 
-const SEVERITY_META: Record<string, { icon: ReactNode; className: string }> = {
-  low: { icon: <Info size={12} weight="bold" />, className: 'bg-zinc-100 text-zinc-700' },
-  medium: { icon: <Warning size={12} weight="bold" />, className: 'bg-amber-100/70 text-amber-800' },
-  high: { icon: <WarningDiamond size={12} weight="bold" />, className: 'bg-orange-100/70 text-orange-800' },
-  critical: { icon: <WarningOctagon size={12} weight="bold" />, className: 'bg-rose-100/70 text-rose-800' },
+const SEVERITY_META: Record<string, { icon: ReactNode; tone: ChipTone }> = {
+  low: { icon: <Info size={12} weight="bold" />, tone: 'neutral' },
+  medium: { icon: <Warning size={12} weight="bold" />, tone: 'warn' },
+  high: { icon: <WarningDiamond size={12} weight="bold" />, tone: 'orange' },
+  critical: { icon: <WarningOctagon size={12} weight="bold" />, tone: 'danger' },
 }
 
-const STATUS_META: Record<string, { icon: ReactNode; className: string }> = {
-  open: { icon: <CircleDashed size={13} weight="bold" className="text-rose-600" />, className: 'text-zinc-800' },
-  acknowledged: { icon: <Eye size={13} weight="bold" className="text-amber-600" />, className: 'text-zinc-800' },
-  resolved: { icon: <CheckCircle size={13} weight="fill" className="text-emerald-600" />, className: 'text-zinc-800' },
-}
+const STATUS_TONE: Record<string, ChipTone> = { open: 'danger', acknowledged: 'warn', resolved: 'ok' }
 
-const FALLBACK = { icon: <Info size={12} weight="bold" />, className: 'bg-zinc-100 text-zinc-700' }
-const BASE = 'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium whitespace-nowrap'
-
-/** Icon + label so severity is never conveyed by colour alone. */
+/** Severity keeps a soft pill with an icon, so it is never colour alone. */
 export function SeverityBadge({ severity }: { severity: string }) {
-  const meta = SEVERITY_META[severity] ?? FALLBACK
+  const meta = SEVERITY_META[severity] ?? SEVERITY_META.low
   return (
-    <span className={`${BASE} ${meta.className}`}>
-      {meta.icon}
+    <Chip tone={meta.tone} icon={meta.icon}>
       <span className="capitalize">{severity}</span>
-    </span>
+    </Chip>
   )
 }
 
+/** Lifecycle status as dot + text. */
 export function IncidentStatusBadge({ status }: { status: string }) {
-  const meta = STATUS_META[status] ?? FALLBACK
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${meta.className}`}>
-      {meta.icon}
+    <Chip tone={STATUS_TONE[status] ?? 'neutral'} dot>
       {statusLabel(status)}
-    </span>
+    </Chip>
   )
 }

@@ -13,7 +13,8 @@ import { ActivityList } from './ActivityList'
 import { MemoryStrip } from './MemoryStrip'
 import type { ArtifactRef } from '../../lib/tool-call-view'
 import type { ToolCallSummary } from '../../lib/trace-model'
-import { ToolCallBlock, type ToolCallApproval } from './ToolCallBlock'
+import { ToolCallCard, type ToolCallApproval } from './ToolCallCard'
+import { Button } from '../ui/Button'
 
 interface ChatTurnProps {
   snapshot: RunSnapshot
@@ -22,7 +23,7 @@ interface ChatTurnProps {
   streamingFinalAnswer?: string
   streamingToolArgs?: string
   /** The decision the run is paused on. It is rendered as a STATE of the
-   * matching tool call (`ToolCallBlock`), in order with the other calls —
+   * matching tool call (`ToolCallCard`), in order with the other calls —
    * never as a separate card. */
   approval?: ToolCallApproval
   /** Scroll anchor for the awaiting-approval tool call. */
@@ -33,8 +34,6 @@ interface ChatTurnProps {
   onFocusToolCall?: (key: string) => void
 }
 
-const ACTION_BUTTON =
-  'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-500 transition-colors duration-150 hover:bg-zinc-950/5 hover:text-zinc-900 active:scale-95'
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -44,22 +43,22 @@ function CopyButton({ text }: { text: string }) {
     return () => clearTimeout(t)
   }, [copied])
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       onClick={() => {
         void navigator.clipboard
           ?.writeText(text)
           .then(() => setCopied(true))
           .catch(() => {
-            /* clipboard unavailable (insecure context / denied) - nothing to do */
+            /* clipboard unavailable (insecure context / denied): the answer stays selectable */
           })
       }}
-      className={ACTION_BUTTON}
       aria-label="Copy answer"
+      icon={copied ? <Check size={13} weight="bold" className="text-emerald-600" /> : <Copy size={13} weight="bold" />}
     >
-      {copied ? <Check size={13} weight="bold" className="text-emerald-600" /> : <Copy size={13} weight="bold" />}
       {copied ? 'Copied' : 'Copy'}
-    </button>
+    </Button>
   )
 }
 
@@ -135,7 +134,7 @@ export function ChatTurn({
   return (
     <article className="animate-rise space-y-5" data-run-id={snapshot.run_id} aria-label={`Turn ${snapshot.run_id}`}>
       <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-[1.25rem] rounded-br-md bg-zinc-950/[0.05] px-4 py-2.5 text-[15px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-zinc-900">
+        <p className="max-w-[85%] rounded-[14px] rounded-br-[6px] bg-zinc-950/[0.05] px-4 py-2.5 text-[15px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-zinc-900">
           {snapshot.objective}
         </p>
       </div>
@@ -184,7 +183,7 @@ export function ChatTurn({
             {visibleCalls.map((call) => {
               const isPaused = !!approval && (call.key === awaitingKey || call === fallbackApprovalCall)
               return (
-                <ToolCallBlock
+                <ToolCallCard
                   key={call.key}
                   call={call}
                   approval={isPaused ? approval : undefined}
@@ -259,10 +258,9 @@ export function ChatTurn({
                 <span className="flex items-center gap-0.5">
                   <CopyButton text={answer} />
                   {onRegenerate && (
-                    <button type="button" onClick={onRegenerate} className={ACTION_BUTTON}>
-                      <ArrowsClockwise size={13} weight="bold" />
+                    <Button variant="ghost" size="sm" onClick={onRegenerate} icon={<ArrowsClockwise size={13} weight="bold" />}>
                       Regenerate
-                    </button>
+                    </Button>
                   )}
                 </span>
                 {!live && snapshot.status === 'completed' && <RunFeedbackControl runId={snapshot.run_id} compact />}

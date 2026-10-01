@@ -1,280 +1,337 @@
-import { ArrowClockwise, Warning } from '@phosphor-icons/react'
+import { ArrowSquareOut, CheckCircle, Copy, PlayCircle, Warning } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { EmptyState } from '../components/EmptyState'
-import { ErrorBanner } from '../components/ErrorBanner'
-import { Skeleton } from '../components/Skeleton'
+import { useNavigate } from 'react-router-dom'
 import { IncidentStatusBadge, SeverityBadge } from '../components/incidents/IncidentBadges'
-import { PageHeader } from '../components/ui/PageHeader'
-import { disabledReason, useMe } from '../hooks/useMe'
-import { ApiError, api } from '../lib/api'
-import type { Incident } from '../lib/api-types'
+import { IncidentSheet } from '../components/incidents/IncidentSheet'
+import { useIncidentActions, useIncidentOverrides } from '../components/incidents/use-incident-actions'
 import {
+  BulkBar,
+  Button,
+  CopyId,
+  EmptyState,
+  ErrorState,
+  FilteredEmpty,
+  LinkButton,
+  PageHeader,
+  RelativeTime,
+  Row,
+  RowActions,
+  SearchInput,
+  Segmented,
+  Select,
+  SelectBox,
+  SortHeader,
+  Table,
+  TableSkeleton,
+  useToast,
+  type RowAction,
+} from '../components/ui'
+import { disabledReason, useMe } from '../hooks/useMe'
+import { useClearUrlParams, useUrlEnum, useUrlState } from '../hooks/useUrlState'
+import { api, errorText } from '../lib/api'
+import type { Incident } from '../lib/api-types'
+import { pruneSelection, toggleId } from '../lib/bulk'
+import {
+  INCIDENT_SORT_COLUMNS,
+  SEVERITIES,
   type StatusFilter,
   countByStatus,
   distinctServices,
   filterIncidents,
+  incidentSortKey,
   nextActions,
-  relativeAge,
-  statusLabel,
 } from '../lib/incident-lifecycle'
+import { formatSort, nextSort, parseSort, sortRows } from '../lib/table-sort'
 
-const FILTERS: StatusFilter[] = ['all', 'open', 'acknowledged', 'resolved']
+const STATUS_VALUES: StatusFilter[] = ['all', 'open', 'acknowledged', 'resolved']
+const FILTER_KEYS = ['q', 'status', 'severity', 'service', 'sort']
+const SEARCH_DEBOUNCE_MS = 250
+const DEFAULT_SORT = { column: 'opened', dir: 'desc' } as const
 
-function absoluteTime(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
-
+/** Incidents: filterable, sortable table; a row opens a sheet (`?open=<id>`)
+ * and `/incidents/:id` stays the full-page view. Acknowledge has no reverse
+ * transition in the API, so it is optimistic and held for the Undo window;
+ * resolve is a real call whose Undo reopens the incident. */
 export function IncidentsPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { me } = useMe()
   // Until /me resolves, don't flash controls as disabled; the server is the real guard.
   const canMutate = !me || me.permissions.includes('mutate_incidents')
+  const reason = disabledReason(me, 'mutate_incidents')
+
+  const [q, setQ] = useUrlState('q')
+  const [status, setStatus] = useUrlEnum<StatusFilter>('status', STATUS_VALUES, 'all')
+  const [severity, setSeverity] = useUrlState('severity')
+  const [service, setService] = useUrlState('service')
+  const [sortRaw, setSortRaw] = useUrlState('sort')
+  const [openId, setOpenId] = useUrlState('open')
+  const clearParams = useClearUrlParams()
+
+  const [searchInput, setSearchInput] = useState(q)
   const [incidents, setIncidents] = useState<Incident[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
-  const [status, setStatus] = useState<StatusFilter>('all')
-  const [service, setService] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const { setOverride, clearOverride, merge } = useIncidentOverrides()
 
   useEffect(() => {
-    let cancelled = false
-    api
-      .listIncidents()
-      .then((data) => {
-        if (cancelled) return
-        setError(null)
-        setIncidents(data)
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setError(err instanceof ApiError ? err.message : 'Failed to load incidents. Check the API is running, then retry.')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [refreshToken])
+    const timer = setTimeout(() => {
+      if (searchInput !== q) setQ(searchInput)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [searchInput, q, setQ])
 
-  const refresh = useCallback(() => {
-    setError(null)
+  // Keep the box in step when the URL changes underneath it (Back, Clear filters).
+  useEffect(() => setSearchInput(q), [q])
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api.listIncidents()
+      setIncidents(data)
+      setError(null)
+    } catch (err) {
+      setError(errorText(err, 'Failed to load incidents. Check the API is running, then retry.'))
+    }
     setRefreshToken((n) => n + 1)
   }, [])
 
-  const counts = useMemo(() => countByStatus(incidents ?? []), [incidents])
-  const services = useMemo(() => distinctServices(incidents ?? []), [incidents])
-  // A service filter can outlive the incident that created it (after refresh).
-  const activeService = services.includes(service) ? service : ''
-  const visible = useMemo(
-    () => filterIncidents(incidents ?? [], { status, service: activeService || null }),
-    [incidents, status, activeService],
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const { acknowledge, resolve } = useIncidentActions({ setOverride, clearOverride, reload: load })
+
+  const merged = useMemo(() => (incidents ?? []).map(merge), [incidents, merge])
+  const counts = useMemo(() => countByStatus(merged), [merged])
+  const services = useMemo(() => distinctServices(merged), [merged])
+  const sort = parseSort(sortRaw, INCIDENT_SORT_COLUMNS) ?? DEFAULT_SORT
+  const onSort = (column: string) => setSortRaw(formatSort(nextSort(sort, column)))
+  const active = status !== 'all' || !!severity || !!service || !!q
+  const rows = useMemo(
+    () => sortRows(filterIncidents(merged, { status, service: service || null, severity: severity || null, query: q }), sort, incidentSortKey),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [merged, status, service, severity, q, sortRaw],
   )
 
-  function acknowledge(incident: Incident) {
-    setBusyId(incident.id)
-    setActionError(null)
-    api
-      .acknowledgeIncident(incident.id)
-      .then((updated) =>
-        setIncidents((prev) => prev?.map((i) => (i.id === updated.id ? { ...i, ...updated } : i)) ?? prev),
-      )
-      .catch((err: unknown) =>
-        setActionError(
-          `${incident.id}: ${err instanceof ApiError ? err.message : 'Could not acknowledge. Refresh and try again.'}`,
-        ),
-      )
-      .finally(() => setBusyId(null))
+  useEffect(() => {
+    if (incidents) setSelected((prev) => pruneSelection(prev, rows.map((i) => i.id)))
+  }, [incidents, rows])
+
+  const clearFilters = () => {
+    setSearchInput('')
+    clearParams(FILTER_KEYS)
   }
 
-  const reason = disabledReason(me, 'mutate_incidents')
+  const selectedRows = rows.filter((i) => selected.has(i.id))
+  const selectedOpen = selectedRows.filter((i) => i.status === 'open')
+  const allSelected = rows.length > 0 && selectedRows.length === rows.length
+
+  const openIndex = rows.findIndex((i) => i.id === openId)
+  const step = (delta: 1 | -1) => {
+    if (!rows.length) return
+    setOpenId(rows[(Math.max(0, openIndex) + delta + rows.length) % rows.length].id)
+  }
+
+  const copyId = (id: string) =>
+    navigator.clipboard?.writeText(id).then(
+      () => toast({ title: `Copied ${id}` }),
+      () => toast({ tone: 'error', title: "Couldn't copy the ID" }),
+    )
+
+  const rowActions = (i: Incident): RowAction[] => {
+    const forward = nextActions(i.status, canMutate)
+    return [
+      {
+        label: 'Acknowledge',
+        icon: <PlayCircle size={14} />,
+        disabled: !forward.includes('acknowledge'),
+        disabledReason: !canMutate ? reason : i.status !== 'open' ? 'Only open incidents can be acknowledged.' : undefined,
+        onSelect: () => acknowledge([i]),
+      },
+      {
+        label: 'Resolve…',
+        icon: <CheckCircle size={14} />,
+        disabled: !forward.includes('resolve'),
+        disabledReason: !canMutate ? reason : 'This incident is already resolved.',
+        onSelect: () => setOpenId(i.id),
+      },
+      { label: 'Copy ID', icon: <Copy size={14} />, onSelect: () => copyId(i.id) },
+      { label: 'Open full page', icon: <ArrowSquareOut size={14} />, onSelect: () => navigate(`/incidents/${i.id}`) },
+      ...(i.run_id ? [{ label: 'View originating run', icon: <ArrowSquareOut size={14} />, onSelect: () => navigate(`/runs/${i.run_id}`) }] : []),
+    ]
+  }
+
+  const listed = merged.find((i) => i.id === openId) ?? null
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Incidents"
-        description="Raised by agent runs after approval, tracked through open → acknowledged → resolved."
+        description="Opened by agent runs after approval. Acknowledge to take ownership, resolve with a note."
         actions={
-          <button type="button" onClick={refresh} className="ui-btn ui-btn-secondary">
-            <ArrowClockwise size={14} weight="bold" />
-            Refresh
-          </button>
+          <LinkButton to="/chat" variant="primary">
+            Start a run
+          </LinkButton>
+        }
+        toolbar={
+          <>
+            <Segmented
+              label="Status"
+              value={status}
+              onChange={setStatus}
+              options={STATUS_VALUES.map((v) => ({ value: v, label: v === 'all' ? 'All' : v[0].toUpperCase() + v.slice(1), count: counts[v] }))}
+            />
+            <SearchInput label="Search incidents" placeholder="Search title, ID or service" value={searchInput} onValueChange={setSearchInput} className="w-full sm:w-60" />
+            <Select aria-label="Severity" value={severity} onChange={(e) => setSeverity(e.target.value)}>
+              <option value="">Any severity</option>
+              {SEVERITIES.map((s) => (
+                <option key={s} value={s}>
+                  {s[0].toUpperCase() + s.slice(1)}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label="Service" value={services.includes(service) ? service : ''} onChange={(e) => setService(e.target.value)} className="max-w-[12rem]">
+              <option value="">All services</option>
+              {services.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+            {active && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            )}
+            <span className="ml-auto text-xs text-zinc-500" aria-live="polite">
+              {incidents ? `${rows.length} of ${incidents.length}` : ''}
+            </span>
+          </>
         }
       />
 
-      <div className="mt-4">
-        {error ? (
-          <ErrorBanner message={error} onRetry={refresh} />
-        ) : incidents === null ? (
-          <div className="space-y-2" aria-busy="true" aria-label="Loading incidents">
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : incidents.length === 0 ? (
-          <EmptyState
-            icon={<Warning size={32} weight="duotone" />}
-            title="No incidents yet"
-            description="When an agent run creates an incident and you approve it, it appears here, linked back to the run. You can then acknowledge and resolve it."
-            action={
-              <Link to="/chat" className="ui-btn ui-btn-secondary">
-                Start a run
-              </Link>
-            }
-          />
-        ) : (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div
-                role="group"
-                aria-label="Filter by status"
-                className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5"
-              >
-                {FILTERS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setStatus(f)}
-                    aria-pressed={status === f}
-                    className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors ${
-                      status === f ? 'bg-sky-600 text-white' : 'text-zinc-700 hover:bg-zinc-100'
-                    }`}
-                  >
-                    {f === 'all' ? 'All' : statusLabel(f)}
-                    <span className="font-data tabular-nums opacity-80">{counts[f]}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <label htmlFor="incident-service-filter" className="text-xs font-medium text-zinc-600">
+      {error && incidents === null ? (
+        <ErrorState message={error} onRetry={() => void load()} />
+      ) : incidents === null ? (
+        <TableSkeleton rows={6} columns={6} />
+      ) : incidents.length === 0 ? (
+        <EmptyState
+          icon={<Warning size={22} weight="duotone" />}
+          title="No incidents yet"
+          description="When an agent run raises an incident and you approve it, it appears here, linked back to the run. You can then acknowledge and resolve it."
+          action={
+            <LinkButton to="/chat" variant="primary">
+              Start a run
+            </LinkButton>
+          }
+          example="Try: “payments-api looks degraded. Open an incident if it is.”"
+        />
+      ) : rows.length === 0 ? (
+        <FilteredEmpty query={q || undefined} what="incidents" onClear={clearFilters} />
+      ) : (
+        <>
+          {error && <p className="mb-2 text-xs text-rose-700">Refresh failed: {error} Showing the last loaded list.</p>}
+          <Table label="Incidents">
+            <thead>
+              <tr>
+                <th className="w-10">
+                  <SelectBox
+                    label="Select all incidents"
+                    checked={allSelected}
+                    indeterminate={selectedRows.length > 0}
+                    onChange={(on) => setSelected(on ? new Set(rows.map((i) => i.id)) : new Set())}
+                  />
+                </th>
+                <SortHeader column="title" sort={sort} onSort={onSort}>
+                  Incident
+                </SortHeader>
+                <SortHeader column="severity" sort={sort} onSort={onSort} className="hidden sm:table-cell">
+                  Severity
+                </SortHeader>
+                <SortHeader column="status" sort={sort} onSort={onSort}>
+                  Status
+                </SortHeader>
+                <SortHeader column="service" sort={sort} onSort={onSort} className="hidden md:table-cell">
                   Service
-                </label>
-                <select
-                  id="incident-service-filter"
-                  name="service"
-                  autoComplete="off"
-                  value={activeService}
-                  onChange={(e) => setService(e.target.value)}
-                  className="ui-input"
-                >
-                  <option value="">All services</option>
-                  {services.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+                </SortHeader>
+                <SortHeader column="opened" sort={sort} onSort={onSort} className="hidden sm:table-cell">
+                  Opened
+                </SortHeader>
+                <th className="hidden lg:table-cell">Acknowledged</th>
+                <th className="w-12">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((i) => (
+                <Row key={i.id} onOpen={() => setOpenId(i.id)} selected={selected.has(i.id) || i.id === openId}>
+                  <td>
+                    <SelectBox label={`Select ${i.id}`} checked={selected.has(i.id)} onChange={(on) => setSelected((prev) => toggleId(prev, i.id, on))} />
+                  </td>
+                  <td className="max-w-0 min-w-[9rem]">
+                    <p className="truncate font-medium text-zinc-900" title={i.title}>
+                      {i.title}
+                    </p>
+                    <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+                      <CopyId value={i.id} label="incident ID" />
+                      <span className="sm:hidden"><SeverityBadge severity={i.severity} /></span>
+                    </p>
+                  </td>
+                  <td className="hidden sm:table-cell">
+                    <SeverityBadge severity={i.severity} />
+                  </td>
+                  <td>
+                    <IncidentStatusBadge status={i.status} />
+                  </td>
+                  <td className="hidden max-w-[10rem] truncate text-zinc-600 md:table-cell">{i.service_name ?? '—'}</td>
+                  <td className="hidden text-zinc-600 sm:table-cell">
+                    <RelativeTime value={i.created_at} />
+                  </td>
+                  <td className="hidden text-zinc-600 lg:table-cell">
+                    <RelativeTime value={i.acknowledged_at} fallback="Not yet" />
+                  </td>
+                  <td className="text-right">
+                    <RowActions label={`Actions for ${i.id}`} items={rowActions(i)} />
+                  </td>
+                </Row>
+              ))}
+            </tbody>
+          </Table>
+          <BulkBar count={selectedRows.length} noun="incident" onClear={() => setSelected(new Set())}>
+            <Button
+              size="sm"
+              icon={<PlayCircle size={14} />}
+              disabled={!canMutate || selectedOpen.length === 0}
+              title={!canMutate ? reason : selectedOpen.length === 0 ? 'None of the selected incidents are open.' : undefined}
+              onClick={() => {
+                acknowledge(selectedOpen)
+                setSelected(new Set())
+              }}
+            >
+              {selectedOpen.length > 0 ? `Acknowledge ${selectedOpen.length} open` : 'Acknowledge'}
+            </Button>
+          </BulkBar>
+        </>
+      )}
 
-            {actionError && <ErrorBanner message={actionError} />}
-
-            {visible.length === 0 ? (
-              <EmptyState
-                icon={<Warning size={32} weight="duotone" />}
-                title="No incidents match these filters"
-                description="Widen the status or service filter to see the other incidents."
-                action={
-                  <button
-                    type="button"
-                    className="ui-btn ui-btn-secondary"
-                    onClick={() => {
-                      setStatus('all')
-                      setService('')
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                }
-              />
-            ) : (
-              <div className="ui-card overflow-x-auto">
-                <table className="ui-table w-full">
-                  <thead>
-                    <tr>
-                      <th scope="col">Severity</th>
-                      <th scope="col">Status</th>
-                      <th scope="col" className="hidden sm:table-cell">ID</th>
-                      <th scope="col">Incident</th>
-                      <th scope="col" className="hidden md:table-cell">Opened</th>
-                      <th scope="col">
-                        <span className="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visible.map((incident) => {
-                      const actions = nextActions(incident.status, canMutate)
-                      const readOnly = !canMutate && nextActions(incident.status, true).length > 0
-                      return (
-                        <tr
-                          key={incident.id}
-                          onClick={() => navigate(`/incidents/${incident.id}`)}
-                          className="cursor-pointer"
-                        >
-                          <td>
-                            <SeverityBadge severity={incident.severity} />
-                          </td>
-                          <td>
-                            <IncidentStatusBadge status={incident.status} />
-                          </td>
-                          <td className="font-data hidden text-xs text-zinc-500 sm:table-cell">{incident.id}</td>
-                          <td className="max-w-[12rem] min-w-0 sm:max-w-md">
-                            <Link
-                              to={`/incidents/${incident.id}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="ui-btn-link block truncate"
-                              title={incident.title}
-                            >
-                              {incident.title}
-                            </Link>
-                            <span className="block truncate text-xs text-zinc-500">
-                              {incident.service_name}
-                              <span className="md:hidden">
-                                {incident.service_name ? ' · ' : ''}opened {relativeAge(incident.created_at)}
-                              </span>
-                            </span>
-                          </td>
-                          <td
-                            className="hidden text-xs whitespace-nowrap text-zinc-500 md:table-cell"
-                            title={absoluteTime(incident.created_at)}
-                          >
-                            opened {relativeAge(incident.created_at)}
-                          </td>
-                          <td className="whitespace-nowrap text-right">
-                            <span className="inline-flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-                              {actions.includes('acknowledge') && (
-                                <button
-                                  type="button"
-                                  className="ui-btn ui-btn-sm ui-btn-secondary"
-                                  disabled={busyId === incident.id}
-                                  onClick={() => acknowledge(incident)}
-                                >
-                                  Acknowledge
-                                </button>
-                              )}
-                              {actions.includes('resolve') && (
-                                <Link to={`/incidents/${incident.id}`} className="ui-btn ui-btn-sm ui-btn-ghost">
-                                  Resolve
-                                </Link>
-                              )}
-                              {readOnly && (
-                                <span className="text-xs text-zinc-600" title={reason}>
-                                  Read-only
-                                </span>
-                              )}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {openId && (
+        <IncidentSheet
+          incidentId={openId}
+          listed={listed}
+          merge={merge}
+          canMutate={canMutate}
+          reason={reason}
+          refreshToken={refreshToken}
+          onClose={() => setOpenId('')}
+          onPrev={rows.length > 1 ? () => step(-1) : undefined}
+          onNext={rows.length > 1 ? () => step(1) : undefined}
+          onOpenOther={setOpenId}
+          onAcknowledge={(i) => acknowledge([i])}
+          onResolve={resolve}
+        />
+      )}
     </div>
   )
 }

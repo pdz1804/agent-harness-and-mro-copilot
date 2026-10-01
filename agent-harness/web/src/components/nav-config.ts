@@ -70,3 +70,14 @@ export const PALETTE_PAGES: { to: string; label: string; keywords: string }[] = 
   { to: '/sessions', label: 'Sessions', keywords: 'history chats conversations search archive' },
   ...NAV_GROUPS.slice(1).flatMap((g) => g.items),
 ].map(({ to, label, keywords }) => ({ to, label, keywords }))
+
+/** Palette actions: verbs, not pages. Each opens the page with the matching
+ * creation flow already open (the page reads the query flag). */
+export const PALETTE_ACTIONS: { to: string; label: string; keywords: string }[] = [
+  { to: '/chat', label: 'New run', keywords: 'start ask agent chat objective' },
+  { to: '/dashboards?create=1', label: 'Create dashboard', keywords: 'new widgets charts' },
+  { to: '/knowledge?add=1', label: 'Add knowledge document', keywords: 'upload runbook doc kb' },
+  { to: '/memory?add=1', label: 'Remember a fact', keywords: 'new memory add' },
+  { to: '/prompts?create=1', label: 'New prompt', keywords: 'create system template' },
+  { to: '/sessions?status=pending_approval', label: 'Review pending approvals', keywords: 'approve deny waiting' },
+]

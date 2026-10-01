@@ -1,15 +1,22 @@
-import { ArrowDown, ArrowLeft, ChatCircleDots, FlagCheckered, HandPalm, Package, SlidersHorizontal, WarningCircle, WaveSine } from '@phosphor-icons/react'
+import { ArrowDown, ArrowLeft, ChatCircleDots, FlagCheckered, Package, SlidersHorizontal, WarningCircle, WaveSine } from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ApprovalBar } from '../components/chat/ApprovalBar'
 import { ChatTurn } from '../components/chat/ChatTurn'
 import { Composer } from '../components/chat/Composer'
-import { EmptyState } from '../components/EmptyState'
+import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { InspectorPanel } from '../components/inspector/InspectorPanel'
 import { StatusBadge } from '../components/StatusBadge'
-import { TimelineSkeleton } from '../components/Skeleton'
+import { TimelineSkeleton } from '../components/ui/Skeleton'
 import { TraceWaterfall } from '../components/TraceWaterfall'
+import { Button, LinkButton } from '../components/ui/Button'
+import { Segmented } from '../components/ui/Input'
+import { useToast } from '../components/ui/Toast'
 import { WorkspacePanel } from '../components/workspace/WorkspacePanel'
+import { disabledReason, useMe } from '../hooks/useMe'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { approvalRequestedAt, countSteps, jumpLabel } from '../lib/run-progress'
 import { useSessionArtifacts } from '../hooks/useSessionArtifacts'
 import { stalledFor, type ArtifactRef } from '../lib/tool-call-view'
 import { useLocalStorageState } from '../hooks/useLocalStorageState'
@@ -128,18 +135,21 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
     return () => cancelAnimationFrame(frame)
   }, [approvalKey, scrollToElement])
 
-  // The "needs your approval" chip only points at the approval card while the
-  // card is scrolled out of view; it never sits over the Approve/Deny buttons.
-  const [approvalInView, setApprovalInView] = useState(false)
+  // "Jump to latest · n new steps": how many steps arrived since the reader
+  // left the bottom of the thread (index into history at that moment).
+  const [leftBottomAt, setLeftBottomAt] = useState<number | null>(null)
+  const historyLength = snapshot?.history.length ?? 0
   useEffect(() => {
-    setApprovalInView(false)
-    const target = approvalRef.current
-    const root = scrollRef.current
-    if (!approvalKey || !target || !root || typeof IntersectionObserver === 'undefined') return
-    const observer = new IntersectionObserver(([entry]) => setApprovalInView(entry.isIntersecting), { root, threshold: 0.15 })
-    observer.observe(target)
-    return () => observer.disconnect()
-  }, [approvalKey, scrollRef, view])
+    setLeftBottomAt((prev) => (following ? null : (prev ?? historyLength)))
+    // Only the following flip matters; growth while away is what we count.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [following])
+  const newSteps = !following && snapshot && leftBottomAt !== null ? countSteps(snapshot.history, leftBottomAt) : 0
+
+  const toast = useToast()
+  const { me } = useMe()
+  const approvalBlocked = me && !me.permissions.includes('chat') ? disabledReason(me, 'chat') : null
+  useDocumentTitle(snapshot?.objective ? snapshot.objective.slice(0, 60) : null)
 
   // A bare run permalink (`/runs/:id`) is canonicalized to its session URL
   // once the run's session is known.
@@ -185,9 +195,9 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
         title="Run not found"
         description={`No run with id "${runId}" exists. It may have been from a previous session.`}
         action={
-          <Link to="/sessions" className="text-sm font-medium text-sky-700 hover:text-sky-800">
+          <LinkButton to="/sessions" variant="secondary">
             View sessions
-          </Link>
+          </LinkButton>
         }
       />
     )
@@ -214,6 +224,20 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
     }
   }
 
+  const decide = async (approved: boolean) => {
+    if (!snapshot) return
+    const tool = snapshot.pending_approval?.tool_name ?? 'the tool call'
+    try {
+      await api.approveRun(snapshot.run_id, approved)
+    } catch (err) {
+      // 409: decided elsewhere (another tab / user) or timed out; show the truth.
+      refresh()
+      throw err
+    }
+    toast({ title: approved ? `Approved ${tool}` : `Denied ${tool}`, description: approved ? 'The run continues.' : 'The agent was told the call was denied.' })
+    refresh()
+  }
+
   const stop = async () => {
     if (!snapshot) return
     setStopping(true)
@@ -235,20 +259,26 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
   return (
     <div className="-mx-4 -my-6 flex h-[calc(100%+3rem)] md:-mx-8 md:-my-8 md:h-[calc(100%+4rem)]">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="shrink-0 border-b border-[var(--color-line)] px-4 py-2.5 md:px-8">
-          <div className="mx-auto flex max-w-[47.5rem] items-center justify-between gap-3">
-            <div className="min-w-0">
+        <header className="shrink-0 border-b border-[var(--color-line)] px-4 py-2.5 md:px-6">
+          {/* Phones stack the title over the controls so the title stays readable. */}
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="w-full min-w-0 sm:w-auto sm:flex-1">
               <Link
                 to="/sessions"
-                className="inline-flex items-center gap-1 rounded text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-900"
+                className="inline-flex items-center gap-1 rounded text-xs font-medium whitespace-nowrap text-zinc-500 transition-colors hover:text-zinc-900 sm:hidden"
               >
                 <ArrowLeft size={12} weight="bold" />
                 All sessions
               </Link>
               {snapshot && (
+                <h1 className="mt-0.5 truncate font-[family-name:var(--font-display)] text-[15px] leading-6 font-semibold tracking-[-0.01em] text-zinc-950" title={snapshot.objective}>
+                  {snapshot.objective}
+                </h1>
+              )}
+              {snapshot && (
                 <p
                   data-testid="run-meta"
-                  className="font-data mt-1 hidden min-w-0 items-center gap-x-2 overflow-hidden text-[11.5px] whitespace-nowrap text-zinc-500 sm:flex"
+                  className="font-data hidden min-w-0 items-center gap-x-2 overflow-hidden text-[11.5px] whitespace-nowrap text-zinc-500 sm:flex"
                 >
                   <span className="text-zinc-700">{snapshot.run_id}</span>
                   <span className={sidePanelOpen ? 'hidden 2xl:contents' : 'contents'}>
@@ -259,7 +289,7 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
                     <>
                       <span aria-hidden="true" className="text-zinc-300">·</span>
                       <span className="inline-flex items-center gap-1 font-sans text-emerald-600">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
+                        <span className="ui-live-dot h-1.5 w-1.5 rounded-full bg-emerald-500 text-emerald-500" aria-hidden="true" />
                         live
                       </span>
                     </>
@@ -289,61 +319,42 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
             <div className="flex shrink-0 items-center gap-2">
               {snapshot && <StatusBadge status={snapshot.status} />}
               {snapshot && (
-                <div className="ui-segmented text-xs" role="tablist" aria-label="Run view">
-                  <span
-                    aria-hidden="true"
-                    className={`absolute top-[2px] bottom-[2px] left-[2px] w-[calc(50%-2px)] rounded-md bg-white shadow-[var(--shadow-sm)] ring-1 ring-[var(--color-line)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${view === 'trace' ? 'translate-x-full' : ''}`}
-                  />
-                  {(
-                    [
-                      ['chat', 'Chat', <ChatCircleDots key="c" size={14} weight="bold" />],
-                      ['trace', 'Trace', <WaveSine key="t" size={14} weight="bold" />],
-                    ] as const
-                  ).map(([value, label, icon]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="tab"
-                      aria-selected={view === value}
-                      onClick={() => setView(value)}
-                      className={`relative z-10 inline-flex h-7 w-9 items-center sm:w-[4.75rem] justify-center gap-1.5 rounded-md font-medium transition-colors duration-150 ${
-                        view === value ? 'text-zinc-950' : 'text-zinc-500 hover:text-zinc-800'
-                      }`}
-                    >
-                      {icon}
-                      <span className="sr-only sm:not-sr-only">{label}</span>
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  label="Run view"
+                  size="sm"
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: 'chat', label: <span className="sr-only sm:not-sr-only">Chat</span>, icon: <ChatCircleDots size={14} weight="bold" /> },
+                    { value: 'trace', label: <span className="sr-only sm:not-sr-only">Trace</span>, icon: <WaveSine size={14} weight="bold" /> },
+                  ]}
+                />
               )}
               {snapshot && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => showWorkspace(!workspaceOpen)}
                   aria-pressed={workspaceOpen}
                   title="Things this session produced"
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors duration-150 ${
-                    workspaceOpen ? 'bg-sky-50 text-sky-700 ring-1 ring-sky-200 ring-inset' : 'text-zinc-500 hover:bg-zinc-950/5 hover:text-zinc-900'
-                  }`}
+                  icon={<Package size={14} weight="bold" />}
+                  className={workspaceOpen ? '!bg-sky-50 !text-sky-700 ring-1 ring-sky-200 ring-inset' : ''}
                 >
-                  <Package size={14} weight="bold" />
-                  <span className={sidePanelOpen ? 'sr-only' : 'hidden sm:inline'}>Workspace</span>
-                  {!sidePanelOpen && <span className="sr-only sm:hidden">Workspace</span>}
-                </button>
+                  <span className={sidePanelOpen ? 'sr-only' : 'sr-only sm:not-sr-only'}>Workspace</span>
+                </Button>
               )}
               {snapshot && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => showInspector(!inspectorOpen)}
                   aria-pressed={inspectorOpen}
                   title="Toggle run inspector (Ctrl+.)"
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors duration-150 ${
-                    inspectorOpen ? 'bg-sky-50 text-sky-700 ring-1 ring-sky-200 ring-inset' : 'text-zinc-500 hover:bg-zinc-950/5 hover:text-zinc-900'
-                  }`}
+                  icon={<SlidersHorizontal size={14} weight="bold" />}
+                  className={inspectorOpen ? '!bg-sky-50 !text-sky-700 ring-1 ring-sky-200 ring-inset' : ''}
                 >
-                  <SlidersHorizontal size={14} weight="bold" />
-                  <span className={sidePanelOpen ? 'sr-only' : 'hidden sm:inline'}>Inspector</span>
-                </button>
+                  <span className={sidePanelOpen ? 'sr-only' : 'sr-only sm:not-sr-only'}>Inspector</span>
+                </Button>
               )}
             </div>
           </div>
@@ -395,13 +406,7 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
                     }
                     approval={
                       snapshot.status === 'pending_approval' && snapshot.pending_approval
-                        ? {
-                            pending: snapshot.pending_approval,
-                            onDecide: async (approved) => {
-                              await api.approveRun(snapshot.run_id, approved)
-                              refresh()
-                            },
-                          }
+                        ? { pending: snapshot.pending_approval, onDecide: decide }
                         : undefined
                     }
                     approvalAnchorRef={approvalRef}
@@ -429,16 +434,16 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
             </div>
           </div>
 
-          {shouldShowJumpPill(following, live) && snapshot?.status !== 'pending_approval' && (
+          {(shouldShowJumpPill(following, live) || newSteps > 0) && (
             <button
               type="button"
               onClick={jumpToLatest}
               data-testid="jump-to-latest"
-              aria-label="Jump to the latest message"
-              className="absolute bottom-4 left-1/2 z-30 inline-flex h-9 -translate-x-1/2 animate-rise items-center gap-1.5 rounded-full bg-white px-3.5 text-xs font-semibold text-zinc-800 shadow-[var(--shadow-lg)] ring-1 ring-[var(--color-line-strong)] transition-colors hover:bg-zinc-50"
+              aria-label={jumpLabel(newSteps)}
+              className="ui-glass absolute bottom-4 left-1/2 z-30 inline-flex h-9 -translate-x-1/2 animate-toast-in items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold text-zinc-800 transition-transform active:scale-95"
             >
               <ArrowDown size={14} weight="bold" />
-              Jump to latest
+              <span className="tabular-nums">{jumpLabel(newSteps)}</span>
             </button>
           )}
         </div>
@@ -454,35 +459,29 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
                   <ErrorBanner message={actionError} />
                 </div>
               )}
-              {snapshot.status === 'pending_approval' && snapshot.pending_approval && !approvalInView && (
-                <div className="mb-2 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={() => scrollToElement(approvalRef.current)}
-                    data-testid="approval-chip"
-                    className="inline-flex h-8 animate-rise items-center gap-2 rounded-full bg-amber-50 pr-3 pl-2.5 text-xs font-medium text-amber-900 ring-1 ring-amber-300/80 ring-inset transition-colors hover:bg-amber-100"
-                  >
-                    <HandPalm size={14} weight="bold" aria-hidden="true" />1 action needs your approval
-                    <ArrowDown size={12} weight="bold" aria-hidden="true" className="rotate-180" />
-                  </button>
-                </div>
+              {snapshot.status === 'pending_approval' && snapshot.pending_approval && (
+                <ApprovalBar
+                  key={approvalKey ?? 'approval'}
+                  toolName={snapshot.pending_approval.tool_name}
+                  requestedAt={approvalRequestedAt(snapshot.history)}
+                  onDecide={decide}
+                  onReview={() => scrollToElement(approvalRef.current)}
+                  disabledReason={approvalBlocked}
+                />
               )}
               {stalledSeconds !== null && (
-                <div
-                  role="status"
-                  className="mb-2 flex animate-rise flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-white px-3.5 py-2.5 text-[13px] text-zinc-700 shadow-[var(--shadow-sm)] ring-1 ring-[var(--color-line-strong)]"
-                >
+                <div role="status" className="ui-glass mb-2 flex animate-toast-in flex-wrap items-center gap-x-3 gap-y-2 rounded-[20px] px-3.5 py-2.5 text-[13px] text-zinc-700">
                   <WarningCircle size={16} weight="fill" className="shrink-0 text-amber-500" aria-hidden="true" />
                   <span className="min-w-0 flex-1">
                     No activity for {stalledSeconds}s. The run may be stuck.
                   </span>
                   <span className="flex gap-1.5">
-                    <button type="button" onClick={refresh} className="ui-btn ui-btn-secondary ui-btn-sm">
+                    <Button size="sm" onClick={refresh}>
                       Refresh
-                    </button>
-                    <button type="button" onClick={() => void stop()} disabled={stopping} className="ui-btn ui-btn-danger ui-btn-sm">
-                      {stopping ? 'Stopping…' : 'Stop'}
-                    </button>
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={() => void stop()} loading={stopping}>
+                      Stop
+                    </Button>
                   </span>
                 </div>
               )}
