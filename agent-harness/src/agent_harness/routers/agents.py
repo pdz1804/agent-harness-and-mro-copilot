@@ -107,8 +107,8 @@ def _resource_of(agent: dict[str, Any]) -> Resource:
     return Resource(owner_id=agent["owner_id"], visibility=agent["visibility"])
 
 
-def _get_readable_or_404(agent_id: str, user: CurrentUser) -> dict[str, Any]:
-    agent = agents_repo.get_agent(agent_id)
+def _get_readable_or_404(agent_id: str, user: CurrentUser, *, include_deleted: bool = False) -> dict[str, Any]:
+    agent = agents_repo.get_agent(agent_id, include_deleted=include_deleted)
     if agent is None:
         raise HTTPException(status_code=404, detail=f"unknown agent '{agent_id}'")
     if not rbac.can_read(user.id, user.role, _resource_of(agent)):
@@ -286,6 +286,26 @@ def delete_agent(agent_id: str, user: CurrentUser = Depends(require("mutate_agen
     if agent["is_default"]:
         raise HTTPException(status_code=409, detail="the default agent cannot be deleted")
     agents_repo.delete_agent(agent_id)
+
+
+@router.post("/agents/{agent_id}/restore", response_model=AgentView)
+def restore_agent(agent_id: str, user: CurrentUser = Depends(require("mutate_agents"))) -> AgentView:
+    """Undo a delete. 404 if the id is unknown or not deleted; 409 if the
+    agent's prompt has been deleted since (restore the prompt first)."""
+    agent = _get_readable_or_404(agent_id, user, include_deleted=True)
+    _require_writable(agent, user)
+    if agent.get("deleted_at") is None:
+        raise HTTPException(status_code=404, detail=f"agent '{agent_id}' is not deleted")
+    prompt = prompts_repo.get_prompt(agent["prompt_id"])
+    if prompt is None or prompt.get("archived_at") is not None:
+        raise HTTPException(
+            status_code=409, detail="the agent's prompt has been deleted: restore the prompt first"
+        )
+    if not agents_repo.restore_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"agent '{agent_id}' is not deleted")
+    restored = agents_repo.get_agent(agent_id)
+    assert restored is not None
+    return AgentView(**restored)
 
 
 @router.post("/agents/{agent_id}/preview-route", response_model=PreviewRouteResponse)

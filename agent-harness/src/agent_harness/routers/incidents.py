@@ -40,10 +40,12 @@ class IncidentView(BaseModel):
     resolved_by: Optional[str] = None
     resolved_at: Optional[str] = None
     resolution_note: Optional[str] = None
+    reopened_by: Optional[str] = None
+    reopened_at: Optional[str] = None
 
 
 class TimelineEntry(BaseModel):
-    event: Literal["opened", "acknowledged", "resolved"]
+    event: Literal["opened", "acknowledged", "resolved", "reopened"]
     at: str
     actor_id: Optional[str] = None
     actor_name: Optional[str] = None
@@ -121,6 +123,15 @@ def _timeline(row: dict[str, Any]) -> list[TimelineEntry]:
                 note=row.get("resolution_note") or None,
             )
         )
+    if row.get("reopened_at"):
+        entries.append(
+            TimelineEntry(
+                event="reopened",
+                at=row["reopened_at"],
+                actor_id=row.get("reopened_by"),
+                actor_name=_name(row.get("reopened_by")),
+            )
+        )
     return entries
 
 
@@ -183,3 +194,17 @@ def resolve_incident(
     """open|acknowledged -> resolved, recording who, when and an optional note."""
     return _transition(incident_id, "resolved", user, request.note.strip() or None)
 
+
+
+@router.post("/incidents/{incident_id}/reopen", response_model=IncidentView)
+def reopen_incident(incident_id: str, user: CurrentUser = Depends(require("mutate_incidents"))) -> IncidentView:
+    """resolved -> acknowledged, clearing the resolution and recording who
+    reopened it and when. 409 if it is not resolved."""
+    _get_visible_or_404(incident_id, user)
+    try:
+        updated = incidents_repo.reopen_incident(incident_id, user.id, datetime.now(timezone.utc).isoformat())
+    except incidents_repo.IncidentTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"unknown incident '{incident_id}'")
+    return _view(updated)

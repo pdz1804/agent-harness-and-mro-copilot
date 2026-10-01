@@ -69,8 +69,8 @@ def _names() -> dict[str, str]:
     return {u["id"]: u["display_name"] for u in users_repo.list_users()}
 
 
-def _get_manageable_or_404(memory_id: str, user: CurrentUser) -> dict[str, Any]:
-    row = memories_repo.get_memory(memory_id)
+def _get_manageable_or_404(memory_id: str, user: CurrentUser, *, include_deleted: bool = False) -> dict[str, Any]:
+    row = memories_repo.get_memory(memory_id, include_deleted=include_deleted)
     if row is None or not rbac.can_manage(user.id, user.role, Resource(owner_id=row["owner_id"])):
         raise HTTPException(status_code=404, detail=f"unknown memory '{memory_id}'")
     return row
@@ -119,3 +119,14 @@ def update_memory(
 def delete_memory(memory_id: str, user: CurrentUser = Depends(current_user)) -> None:
     _get_manageable_or_404(memory_id, user)
     memories_repo.delete_memory(memory_id)
+
+
+@router.post("/memories/{memory_id}/restore", response_model=MemoryView)
+def restore_memory(memory_id: str, user: CurrentUser = Depends(current_user)) -> MemoryView:
+    """Undo a delete. 404 if the id is unknown, not deleted, or not the caller's."""
+    row = _get_manageable_or_404(memory_id, user, include_deleted=True)
+    if row.get("deleted_at") is None or not memories_repo.restore_memory(memory_id):
+        raise HTTPException(status_code=404, detail=f"memory '{memory_id}' is not deleted")
+    restored = memories_repo.get_memory(memory_id)
+    assert restored is not None
+    return _view(restored, _names())

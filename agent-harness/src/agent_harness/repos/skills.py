@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from agent_harness import db
+from agent_harness.repos import trash
 
 # Slugs that collide with reserved chat/slash-command namespace (phase 04's
 # `/slug` parsing) and so may never be used as a skill slug.
@@ -74,7 +75,7 @@ def list_skills(
     """Every skill, optionally filtered by `q` (substring match against
     slug/name/description) and `enabled` (exact match)."""
     with db.connect(dsn) as conn:
-        rows = conn.execute("SELECT * FROM skills ORDER BY updated_at DESC").fetchall()
+        rows = conn.execute("SELECT * FROM skills WHERE deleted_at IS NULL ORDER BY updated_at DESC").fetchall()
         out = []
         for r in rows:
             row = _row_to_skill(r)
@@ -90,15 +91,18 @@ def list_skills(
         return out
 
 
-def get_skill(skill_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
+def get_skill(
+    skill_id: str, dsn: Optional[str] = None, *, include_deleted: bool = False
+) -> Optional[dict[str, Any]]:
+    suffix = "" if include_deleted else " AND deleted_at IS NULL"
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM skills WHERE id = %s", (skill_id,)).fetchone()
+        row = conn.execute("SELECT * FROM skills WHERE id = %s" + suffix, (skill_id,)).fetchone()
         return _row_to_skill(row) if row else None
 
 
 def get_skill_by_slug(slug: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM skills WHERE slug = %s", (slug,)).fetchone()
+        row = conn.execute("SELECT * FROM skills WHERE slug = %s AND deleted_at IS NULL", (slug,)).fetchone()
         return _row_to_skill(row) if row else None
 
 
@@ -121,6 +125,7 @@ def create_skill(
     now = _now()
     skill_id = _new_id()
     with db.connect(dsn) as conn:
+        trash.release_slug(conn, "skills", slug)
         conn.execute(
             "INSERT INTO skills "
             "(id, slug, name, description, instructions, allowed_tools, examples, "
@@ -194,7 +199,7 @@ def update_skill(
     values.append(skill_id)
     with db.connect(dsn) as conn:
         cur = conn.execute(
-            f"UPDATE skills SET {', '.join(fields)} WHERE id = %s", tuple(values)
+            f"UPDATE skills SET {', '.join(fields)} WHERE id = %s AND deleted_at IS NULL", tuple(values)
         )
         if cur.rowcount == 0:
             return None
@@ -202,10 +207,18 @@ def update_skill(
 
 
 def delete_skill(skill_id: str, dsn: Optional[str] = None) -> bool:
-    """Hard-delete (skills are not versioned/referenced by past runs the way
-    prompts are — no lineage to preserve). Returns False if unknown."""
+    """Soft-delete (restorable until purged). False if unknown or already deleted."""
     with db.connect(dsn) as conn:
-        cur = conn.execute("DELETE FROM skills WHERE id = %s", (skill_id,))
+        cur = conn.execute(
+            "UPDATE skills SET deleted_at = %s WHERE id = %s AND deleted_at IS NULL", (trash.now_iso(), skill_id)
+        )
+        return cur.rowcount > 0
+
+
+def restore_skill(skill_id: str, dsn: Optional[str] = None) -> bool:
+    """Undo `delete_skill`. False if the id is unknown or not deleted."""
+    with db.connect(dsn) as conn:
+        cur = conn.execute("UPDATE skills SET deleted_at = NULL WHERE id = %s AND deleted_at IS NOT NULL", (skill_id,))
         return cur.rowcount > 0
 
 

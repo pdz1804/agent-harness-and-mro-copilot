@@ -35,6 +35,15 @@ def _row_to_eval_run(row: dict[str, Any]) -> dict[str, Any]:
 
 # --- eval_runs ---------------------------------------------------------
 
+# `eval_runs` plus the per-run aggregates the UI shows next to each job: the
+# mean of its non-null scores and how many results failed their threshold.
+_EVAL_RUN_SELECT = (
+    "SELECT er.*, "
+    "(SELECT AVG(score) FROM eval_results r WHERE r.eval_run_id = er.id AND r.score IS NOT NULL) AS avg_score, "
+    "(SELECT COUNT(*) FROM eval_results r WHERE r.eval_run_id = er.id AND r.passed = FALSE) AS failed_count "
+    "FROM eval_runs er"
+)
+
 
 def create_eval_run(
     *,
@@ -63,7 +72,7 @@ def create_eval_run(
 
 def get_eval_run(eval_run_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM eval_runs WHERE id = %s", (eval_run_id,)).fetchone()
+        row = conn.execute(_EVAL_RUN_SELECT + " WHERE er.id = %s", (eval_run_id,)).fetchone()
         return _row_to_eval_run(row) if row else None
 
 
@@ -75,11 +84,11 @@ def list_eval_runs(
     with db.connect(dsn) as conn:
         if triggered_by is not None:
             rows = conn.execute(
-                "SELECT * FROM eval_runs WHERE triggered_by = %s ORDER BY created_at DESC",
+                _EVAL_RUN_SELECT + " WHERE er.triggered_by = %s ORDER BY er.created_at DESC",
                 (triggered_by,),
             ).fetchall()
         else:
-            rows = conn.execute("SELECT * FROM eval_runs ORDER BY created_at DESC").fetchall()
+            rows = conn.execute(_EVAL_RUN_SELECT + " ORDER BY er.created_at DESC").fetchall()
         return [_row_to_eval_run(r) for r in rows]
 
 

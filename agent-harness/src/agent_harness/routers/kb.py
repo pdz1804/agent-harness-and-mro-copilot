@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from agent_harness import db, dense_embeddings, retrieval, settings
 from agent_harness.deps import CurrentUser, current_user, require
+from agent_harness.repos import trash
 
 router = APIRouter()
 
@@ -189,18 +190,38 @@ def create_kb_doc(request: CreateKBDocRequest, user: CurrentUser = Depends(requi
 
 @router.delete("/kb/{doc_id}", status_code=204)
 def delete_kb_doc(doc_id: str, user: CurrentUser = Depends(require("mutate_kb"))) -> None:
-    """Delete an UPLOADED document (seed runbooks are read-only files). An
-    editor may delete only what they uploaded; an admin any upload."""
+    """Soft-delete an UPLOADED document (seed runbooks are read-only files): it
+    leaves search at once and is purged after the retention window unless
+    restored. An editor may delete only what they uploaded; an admin any upload."""
     with db.connect() as conn:
-        row = conn.execute("SELECT created_by FROM kb_documents WHERE id = %s", (doc_id,)).fetchone()
+        row = conn.execute(
+            "SELECT created_by FROM kb_documents WHERE id = %s AND deleted_at IS NULL", (doc_id,)
+        ).fetchone()
         if row is None:
             if retrieval.get_index().get_doc(doc_id) is not None:
                 raise HTTPException(status_code=403, detail="seed runbooks are read-only and cannot be deleted")
             raise HTTPException(status_code=404, detail=f"unknown document '{doc_id}'")
         if user.role != "admin" and row["created_by"] != user.id:
             raise HTTPException(status_code=403, detail="you may only delete documents you uploaded")
-        conn.execute("DELETE FROM kb_documents WHERE id = %s", (doc_id,))
+        conn.execute("UPDATE kb_documents SET deleted_at = %s WHERE id = %s", (trash.now_iso(), doc_id))
     retrieval.reset_index()
+
+
+@router.post("/kb/{doc_id}/restore", response_model=KBDocDetail)
+def restore_kb_doc(doc_id: str, user: CurrentUser = Depends(require("mutate_kb"))) -> KBDocDetail:
+    """Undo a delete; the document is searchable again immediately. Same
+    ownership rule as delete. 404 if unknown or not deleted."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT created_by FROM kb_documents WHERE id = %s AND deleted_at IS NOT NULL", (doc_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"document '{doc_id}' is not deleted")
+        if user.role != "admin" and row["created_by"] != user.id:
+            raise HTTPException(status_code=403, detail="you may only restore documents you uploaded")
+        conn.execute("UPDATE kb_documents SET deleted_at = NULL WHERE id = %s", (doc_id,))
+    retrieval.reset_index()
+    return get_kb_doc(doc_id, None, user)
 
 
 @router.post("/kb/reindex", response_model=ReindexResult)

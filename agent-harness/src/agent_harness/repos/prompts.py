@@ -20,6 +20,7 @@ from typing import Any, Optional
 from psycopg.types.json import Jsonb
 
 from agent_harness import db
+from agent_harness.repos import trash
 from agent_harness.repos.base import require_row
 
 # The 3 library entries seeded by the `add_prompt_library` migration. Used
@@ -55,7 +56,7 @@ def list_prompts(
             "  (SELECT COUNT(*) FROM prompt_versions pv WHERE pv.prompt_id = p.id) AS version_count "
             "FROM prompts p "
             "LEFT JOIN prompt_versions av ON av.id = p.active_version_id "
-            "WHERE p.archived_at IS NULL "
+            "WHERE p.archived_at IS NULL AND p.deleted_at IS NULL "
             "ORDER BY p.updated_at DESC"
         ).fetchall()
         out = []
@@ -86,16 +87,20 @@ def list_prompts(
         return out
 
 
-def get_prompt(prompt_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
-    """Full detail: prompt metadata + every version (newest first)."""
+def get_prompt(
+    prompt_id: str, dsn: Optional[str] = None, *, include_deleted: bool = False
+) -> Optional[dict[str, Any]]:
+    """Full detail: prompt metadata + every version (newest first). Soft-deleted
+    prompts are hidden unless `include_deleted`."""
+    suffix = "" if include_deleted else " AND deleted_at IS NULL"
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM prompts WHERE id = %s", (prompt_id,)).fetchone()
+        row = conn.execute("SELECT * FROM prompts WHERE id = %s" + suffix, (prompt_id,)).fetchone()
         if row is None:
             return None
         versions = conn.execute(
             "SELECT pv.*, "
             "  (SELECT COUNT(*) FROM runs r WHERE r.prompt_version_id = pv.id) AS run_count, "
-            "  (SELECT COUNT(*) FROM agents a WHERE a.prompt_version_id = pv.id) AS pinned_agents "
+            "  (SELECT COUNT(*) FROM agents a WHERE a.prompt_version_id = pv.id AND a.deleted_at IS NULL) AS pinned_agents "
             "FROM prompt_versions pv WHERE pv.prompt_id = %s ORDER BY pv.version DESC",
             (prompt_id,),
         ).fetchall()
@@ -104,7 +109,7 @@ def get_prompt(prompt_id: str, dsn: Optional[str] = None) -> Optional[dict[str, 
 
 def get_prompt_by_slug(slug: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM prompts WHERE slug = %s", (slug,)).fetchone()
+        row = conn.execute("SELECT * FROM prompts WHERE slug = %s AND deleted_at IS NULL", (slug,)).fetchone()
         return _row_to_prompt(row) if row else None
 
 
@@ -131,6 +136,7 @@ def create_prompt(
     prompt_id = _new_id("prm")
     version_id = _new_id("pv")
     with db.connect(dsn) as conn:
+        trash.release_slug(conn, "prompts", slug)
         conn.execute(
             "INSERT INTO prompts "
             "(id, slug, name, description, kind, owner_id, visibility, tags, "
@@ -194,7 +200,7 @@ def update_prompt_metadata(
     values.append(prompt_id)
     with db.connect(dsn) as conn:
         cur = conn.execute(
-            f"UPDATE prompts SET {', '.join(fields)} WHERE id = %s", tuple(values)
+            f"UPDATE prompts SET {', '.join(fields)} WHERE id = %s AND deleted_at IS NULL", tuple(values)
         )
         if cur.rowcount == 0:
             return None
@@ -202,19 +208,32 @@ def update_prompt_metadata(
 
 
 def archive_prompt(prompt_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
-    """Soft-delete: versions are never hard-deleted (past runs keep their
-    `prompt_version_id`), so "delete" just hides the prompt from the
-    library. Returns the archived row, or None if unknown."""
+    """Soft-delete: versions are never removed at delete time (past runs keep
+    their `prompt_version_id`), so "delete" just hides the prompt from the
+    library (`archived_at` and `deleted_at` are stamped together; `restore_prompt`
+    clears both). Returns the hidden row, or None if unknown or already deleted."""
     now = _now()
     with db.connect(dsn) as conn:
         cur = conn.execute(
-            "UPDATE prompts SET archived_at = %s, updated_at = %s WHERE id = %s AND archived_at IS NULL",
-            (now, now, prompt_id),
+            "UPDATE prompts SET archived_at = %s, deleted_at = %s, updated_at = %s "
+            "WHERE id = %s AND deleted_at IS NULL AND archived_at IS NULL",
+            (now, now, now, prompt_id),
         )
         if cur.rowcount == 0:
             return None
         row = conn.execute("SELECT * FROM prompts WHERE id = %s", (prompt_id,)).fetchone()
         return _row_to_prompt(row) if row else None
+
+
+def restore_prompt(prompt_id: str, dsn: Optional[str] = None) -> bool:
+    """Undo `archive_prompt`. False if the id is unknown or not deleted."""
+    with db.connect(dsn) as conn:
+        cur = conn.execute(
+            "UPDATE prompts SET archived_at = NULL, deleted_at = NULL, updated_at = %s "
+            "WHERE id = %s AND deleted_at IS NOT NULL",
+            (_now(), prompt_id),
+        )
+        return cur.rowcount > 0
 
 
 def create_version(
@@ -232,7 +251,7 @@ def create_version(
     version whose lint passed). Returns None if `prompt_id` is unknown."""
     now = _now()
     with db.connect(dsn) as conn:
-        prompt_row = conn.execute("SELECT id FROM prompts WHERE id = %s", (prompt_id,)).fetchone()
+        prompt_row = conn.execute("SELECT id FROM prompts WHERE id = %s AND deleted_at IS NULL", (prompt_id,)).fetchone()
         if prompt_row is None:
             return None
         next_version = require_row(

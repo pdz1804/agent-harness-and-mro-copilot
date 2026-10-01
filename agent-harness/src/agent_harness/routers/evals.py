@@ -70,6 +70,8 @@ class EvalRunSummaryView(BaseModel):
     mlflow_url: Optional[str] = None
     error: Optional[str] = None
     created_at: str
+    avg_score: Optional[float] = Field(default=None, description="Mean of the run's non-null scores.")
+    failed_count: int = Field(default=0, description="Results that did not pass their threshold.")
 
 
 class EvalResultView(BaseModel):

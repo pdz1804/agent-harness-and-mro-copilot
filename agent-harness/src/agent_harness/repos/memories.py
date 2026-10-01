@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from agent_harness.repos.base import connect, require_row
+from agent_harness.repos.trash import now_iso
 
 MAX_MEMORIES_PER_OWNER = 500
 MAX_FACT_CHARS = 1000
@@ -39,7 +40,7 @@ def normalize_tags(tags: list[str]) -> list[str]:
 
 def count_for_owner(owner_id: str, dsn: Optional[str] = None) -> int:
     with connect(dsn) as conn:
-        return int(require_row(conn.execute("SELECT COUNT(*) AS n FROM memories WHERE owner_id = %s", (owner_id,)).fetchone())["n"])
+        return int(require_row(conn.execute("SELECT COUNT(*) AS n FROM memories WHERE owner_id = %s AND deleted_at IS NULL", (owner_id,)).fetchone())["n"])
 
 
 def create_memory(
@@ -57,14 +58,15 @@ def create_memory(
     now = _now()
     with connect(dsn) as conn:
         existing = conn.execute(
-            "SELECT * FROM memories WHERE owner_id = %s AND lower(fact) = lower(%s)", (owner_id, fact)
+            "SELECT * FROM memories WHERE owner_id = %s AND lower(fact) = lower(%s) AND deleted_at IS NULL",
+            (owner_id, fact),
         ).fetchone()
         if existing is not None:
             merged = normalize_tags(list(existing["tags"]) + tags)
             conn.execute("UPDATE memories SET tags = %s, updated_at = %s WHERE id = %s", (merged, now, existing["id"]))
             row = require_row(conn.execute("SELECT * FROM memories WHERE id = %s", (existing["id"],)).fetchone())
             return dict(row), False
-        count = require_row(conn.execute("SELECT COUNT(*) AS n FROM memories WHERE owner_id = %s", (owner_id,)).fetchone())["n"]
+        count = require_row(conn.execute("SELECT COUNT(*) AS n FROM memories WHERE owner_id = %s AND deleted_at IS NULL", (owner_id,)).fetchone())["n"]
         if count >= MAX_MEMORIES_PER_OWNER:
             raise MemoryLimitError(
                 f"memory is full ({MAX_MEMORIES_PER_OWNER} facts): delete some on the Memory page first"
@@ -79,9 +81,12 @@ def create_memory(
         return dict(row), True
 
 
-def get_memory(memory_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
+def get_memory(
+    memory_id: str, dsn: Optional[str] = None, *, include_deleted: bool = False
+) -> Optional[dict[str, Any]]:
+    suffix = "" if include_deleted else " AND deleted_at IS NULL"
     with connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM memories WHERE id = %s", (memory_id,)).fetchone()
+        row = conn.execute("SELECT * FROM memories WHERE id = %s" + suffix, (memory_id,)).fetchone()
         return dict(row) if row else None
 
 
@@ -90,7 +95,7 @@ def list_memories(
 ) -> list[dict[str, Any]]:
     """Newest first. `owner_id=None` lists every owner's memories (admin
     oversight). `q` is a case-insensitive substring match on the fact or a tag."""
-    clauses: list[str] = []
+    clauses: list[str] = ["deleted_at IS NULL"]
     params: list[Any] = []
     if owner_id is not None:
         clauses.append("owner_id = %s")
@@ -121,14 +126,31 @@ def update_memory(
         params.append(normalize_tags(tags))
     params.append(memory_id)
     with connect(dsn) as conn:
-        if conn.execute(f"UPDATE memories SET {', '.join(sets)} WHERE id = %s", tuple(params)).rowcount == 0:
+        if conn.execute(f"UPDATE memories SET {', '.join(sets)} WHERE id = %s AND deleted_at IS NULL", tuple(params)).rowcount == 0:
             return None
         return dict(require_row(conn.execute("SELECT * FROM memories WHERE id = %s", (memory_id,)).fetchone()))
 
 
 def delete_memory(memory_id: str, dsn: Optional[str] = None) -> bool:
+    """Soft-delete (see `restore_memory`); False if unknown or already deleted."""
     with connect(dsn) as conn:
-        return conn.execute("DELETE FROM memories WHERE id = %s", (memory_id,)).rowcount > 0
+        return (
+            conn.execute(
+                "UPDATE memories SET deleted_at = %s WHERE id = %s AND deleted_at IS NULL", (now_iso(), memory_id)
+            ).rowcount
+            > 0
+        )
+
+
+def restore_memory(memory_id: str, dsn: Optional[str] = None) -> bool:
+    """Undo `delete_memory`. False if the id is unknown or not deleted."""
+    with connect(dsn) as conn:
+        return (
+            conn.execute(
+                "UPDATE memories SET deleted_at = NULL WHERE id = %s AND deleted_at IS NOT NULL", (memory_id,)
+            ).rowcount
+            > 0
+        )
 
 
 def mark_used(memory_ids: list[str], dsn: Optional[str] = None) -> None:
@@ -146,5 +168,5 @@ def get_many(memory_ids: list[str], dsn: Optional[str] = None) -> list[dict[str,
     if not memory_ids:
         return []
     with connect(dsn) as conn:
-        rows = conn.execute("SELECT * FROM memories WHERE id = ANY(%s)", (memory_ids,)).fetchall()
+        rows = conn.execute("SELECT * FROM memories WHERE id = ANY(%s) AND deleted_at IS NULL", (memory_ids,)).fetchall()
         return [dict(r) for r in rows]

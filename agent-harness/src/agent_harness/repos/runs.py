@@ -69,9 +69,16 @@ def append_event(
         )
 
 
+# Runs belong to their session: while the session is soft-deleted its runs are hidden too.
+_SESSION_NOT_DELETED = (
+    "(session_id IS NULL OR NOT EXISTS "
+    "(SELECT 1 FROM chat_sessions cs WHERE cs.id = runs.session_id AND cs.deleted_at IS NOT NULL))"
+)
+
+
 def list_runs(dsn: Optional[str] = None) -> list[dict[str, Any]]:
     with connect(dsn) as conn:
-        rows = conn.execute("SELECT * FROM runs ORDER BY started_at DESC").fetchall()
+        rows = conn.execute(f"SELECT * FROM runs WHERE {_SESSION_NOT_DELETED} ORDER BY started_at DESC").fetchall()
         return [dict(r) for r in rows]
 
 
@@ -184,7 +191,9 @@ def cancel_orphaned_run(run_id: str, dsn: Optional[str] = None) -> bool:
 
 def get_run(run_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
     with connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM runs WHERE run_id = %s", (run_id,)).fetchone()
+        row = conn.execute(
+            f"SELECT * FROM runs WHERE run_id = %s AND {_SESSION_NOT_DELETED}", (run_id,)
+        ).fetchone()
         if row is None:
             return None
         run = dict(row)

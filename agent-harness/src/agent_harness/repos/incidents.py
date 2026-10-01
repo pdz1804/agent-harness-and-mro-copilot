@@ -165,3 +165,24 @@ def transition_incident(
             )
         updated = require_row(conn.execute("SELECT * FROM incidents WHERE id = %s", (incident_id,)).fetchone())
         return _shape(updated)
+
+
+def reopen_incident(incident_id: str, actor_id: str, at: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """resolved -> acknowledged. The resolution (who, when, note) is cleared and
+    the reopening recorded in `reopened_by`/`reopened_at`. Returns the updated
+    row, or None for an unknown id; raises `IncidentTransitionError` unless the
+    incident is currently resolved."""
+    with connect(dsn) as conn:
+        row = conn.execute("SELECT * FROM incidents WHERE id = %s FOR UPDATE", (incident_id,)).fetchone()
+        if row is None:
+            return None
+        current = normalize_status(row["status"])
+        if current != "resolved":
+            raise IncidentTransitionError(f"cannot reopen an incident that is '{current}': only resolved ones")
+        conn.execute(
+            "UPDATE incidents SET status = 'acknowledged', resolved_by = NULL, resolved_at = NULL, "
+            "resolution_note = NULL, reopened_by = %s, reopened_at = %s WHERE id = %s",
+            (actor_id, at, incident_id),
+        )
+        updated = require_row(conn.execute("SELECT * FROM incidents WHERE id = %s", (incident_id,)).fetchone())
+        return _shape(updated)

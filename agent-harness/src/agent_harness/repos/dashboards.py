@@ -61,13 +61,16 @@ def _row_to_widget(row: dict[str, Any]) -> dict[str, Any]:
 
 def list_dashboards(dsn: Optional[str] = None) -> list[dict[str, Any]]:
     with db.connect(dsn) as conn:
-        rows = conn.execute("SELECT * FROM dashboards ORDER BY updated_at DESC").fetchall()
+        rows = conn.execute("SELECT * FROM dashboards WHERE deleted_at IS NULL ORDER BY updated_at DESC").fetchall()
         return [_row_to_dashboard(r) for r in rows]
 
 
-def get_dashboard(dashboard_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
+def get_dashboard(
+    dashboard_id: str, dsn: Optional[str] = None, *, include_deleted: bool = False
+) -> Optional[dict[str, Any]]:
+    suffix = "" if include_deleted else " AND deleted_at IS NULL"
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM dashboards WHERE id = %s", (dashboard_id,)).fetchone()
+        row = conn.execute("SELECT * FROM dashboards WHERE id = %s" + suffix, (dashboard_id,)).fetchone()
         return _row_to_dashboard(row) if row else None
 
 
@@ -174,7 +177,7 @@ def find_dashboard_by_run(
         return None
     with db.connect(dsn) as conn:
         row = conn.execute(
-            "SELECT * FROM dashboards WHERE created_by_run_id = %s AND name = %s",
+            "SELECT * FROM dashboards WHERE created_by_run_id = %s AND name = %s AND deleted_at IS NULL",
             (run_id, name),
         ).fetchone()
         return _row_to_dashboard(row) if row else None
@@ -250,8 +253,21 @@ def update_dashboard(
 
 
 def delete_dashboard(dashboard_id: str, dsn: Optional[str] = None) -> bool:
+    """Soft-delete (widgets stay, so a restore brings everything back).
+    False if unknown or already deleted."""
     with db.connect(dsn) as conn:
-        cur = conn.execute("DELETE FROM dashboards WHERE id = %s", (dashboard_id,))
+        cur = conn.execute(
+            "UPDATE dashboards SET deleted_at = %s WHERE id = %s AND deleted_at IS NULL", (_now(), dashboard_id)
+        )
+        return cur.rowcount > 0
+
+
+def restore_dashboard(dashboard_id: str, dsn: Optional[str] = None) -> bool:
+    """Undo `delete_dashboard`. False if the id is unknown or not deleted."""
+    with db.connect(dsn) as conn:
+        cur = conn.execute(
+            "UPDATE dashboards SET deleted_at = NULL WHERE id = %s AND deleted_at IS NOT NULL", (dashboard_id,)
+        )
         return cur.rowcount > 0
 
 

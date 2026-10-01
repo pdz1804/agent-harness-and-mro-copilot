@@ -206,7 +206,7 @@ def resolve_agent_prompt(agent: dict[str, Any]) -> tuple[str, Optional[str]]:
         )
         if content is not None:
             return content, version_id
-    prompt = prompts_repo.get_prompt(agent["prompt_id"])
+    prompt = prompts_repo.get_prompt(agent["prompt_id"], include_deleted=True)  # a deleted prompt keeps serving agents bound to it
     if prompt is None:
         return "", None
     content, version_id = prompts_repo.get_active_content(prompt["slug"])

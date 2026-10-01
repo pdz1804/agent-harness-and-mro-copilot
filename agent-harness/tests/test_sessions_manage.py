@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent_harness import db, state  # noqa: E402
 from agent_harness.llm_client import build_scripted_model  # noqa: E402
+from agent_harness.repos import trash  # noqa: E402
 from api import app  # noqa: E402
 
 client = TestClient(app)
@@ -123,9 +124,14 @@ def test_delete_removes_the_session_its_runs_and_events(seeded) -> None:
     assert client.delete("/api/v1/sessions/s-pay", headers=EDITOR).status_code == 204
     assert client.get("/api/v1/sessions/s-pay", headers=EDITOR).status_code == 404
     assert client.get("/api/v1/runs/run-s-pay", headers=EDITOR).status_code == 404
+    assert "s-pay" not in _ids(client.get("/api/v1/sessions", headers=ADMIN))
+    # Delete is soft (Undo); the rows go for good once the retention window has passed.
+    with db.connect() as conn:
+        conn.execute("UPDATE chat_sessions SET deleted_at = '2000-01-01T00:00:00+00:00' WHERE id = 's-pay'")
+    trash.purge_expired()
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) AS n FROM events WHERE run_id = 'run-s-pay'").fetchone()["n"] == 0
-    assert "s-pay" not in _ids(client.get("/api/v1/sessions", headers=ADMIN))
+        assert conn.execute("SELECT COUNT(*) AS n FROM runs WHERE run_id = 'run-s-pay'").fetchone()["n"] == 0
 
 
 def test_rbac_owner_or_admin_only(seeded) -> None:

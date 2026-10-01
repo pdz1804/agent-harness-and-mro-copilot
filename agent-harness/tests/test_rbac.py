@@ -180,6 +180,8 @@ _CHAT_EXEMPT_PATHS = {
     "/api/v1/runs/{run_id}/feedback",
     "/api/v1/memories",
     "/api/v1/memories/{memory_id}",
+    "/api/v1/sessions/{session_id}/restore",
+    "/api/v1/memories/{memory_id}/restore",
     # POST but read-only sandboxes (no run, nothing persisted), like any GET.
     "/api/v1/guardrails/test",
     "/api/v1/skills/route-test",
@@ -213,6 +215,7 @@ _ROUTE_FIXTURES: dict[tuple[str, str], tuple[str, dict]] = {
     ),
     ("PATCH", "/api/v1/prompts/{prompt_id}"): ("/api/v1/prompts/does-not-matter", {"name": "x"}),
     ("DELETE", "/api/v1/prompts/{prompt_id}"): ("/api/v1/prompts/does-not-matter", {}),
+    ("POST", "/api/v1/prompts/{prompt_id}/restore"): ("/api/v1/prompts/does-not-matter/restore", {}),
     ("POST", "/api/v1/prompts/{prompt_id}/versions"): (
         "/api/v1/prompts/does-not-matter/versions",
         {"content": "irrelevant"},
@@ -239,6 +242,7 @@ _ROUTE_FIXTURES: dict[tuple[str, str], tuple[str, dict]] = {
     ("POST", "/api/v1/dashboards"): ("/api/v1/dashboards", {"name": "x", "template_key": "blank"}),
     ("PATCH", "/api/v1/dashboards/{dashboard_id}"): ("/api/v1/dashboards/does-not-matter", {"name": "x"}),
     ("DELETE", "/api/v1/dashboards/{dashboard_id}"): ("/api/v1/dashboards/does-not-matter", {}),
+    ("POST", "/api/v1/dashboards/{dashboard_id}/restore"): ("/api/v1/dashboards/does-not-matter/restore", {}),
     ("POST", "/api/v1/dashboards/{dashboard_id}/widgets"): (
         "/api/v1/dashboards/does-not-matter/widgets",
         {"kind": "stat", "title": "x", "sql_query": "SELECT 1 AS value", "config": {"value_col": "value"}},
@@ -270,12 +274,14 @@ _ROUTE_FIXTURES: dict[tuple[str, str], tuple[str, dict]] = {
     ),
     ("PATCH", "/api/v1/skills/{skill_id}"): ("/api/v1/skills/does-not-matter", {"name": "x"}),
     ("DELETE", "/api/v1/skills/{skill_id}"): ("/api/v1/skills/does-not-matter", {}),
+    ("POST", "/api/v1/skills/{skill_id}/restore"): ("/api/v1/skills/does-not-matter/restore", {}),
     ("POST", "/api/v1/agents"): (
         "/api/v1/agents",
         {"slug": "irrelevant", "name": "irrelevant", "prompt_id": "does-not-matter", "base_tools": []},
     ),
     ("PATCH", "/api/v1/agents/{agent_id}"): ("/api/v1/agents/does-not-matter", {"name": "x"}),
     ("DELETE", "/api/v1/agents/{agent_id}"): ("/api/v1/agents/does-not-matter", {}),
+    ("POST", "/api/v1/agents/{agent_id}/restore"): ("/api/v1/agents/does-not-matter/restore", {}),
     ("POST", "/api/v1/services/{service_name}/status"): ("/api/v1/services/auth-service/status", {"status": "down"}),
     ("POST", "/api/v1/eval-runs"): ("/api/v1/eval-runs", {"scope": "mine"}),
     ("POST", "/api/v1/prompts/verify"): ("/api/v1/prompts/verify", {"content": "irrelevant", "kind": "system"}),
@@ -286,10 +292,12 @@ _ROUTE_FIXTURES: dict[tuple[str, str], tuple[str, dict]] = {
     ("POST", "/api/v1/dashboards/{dashboard_id}/duplicate"): ("/api/v1/dashboards/does-not-matter/duplicate", {}),
     ("POST", "/api/v1/kb"): ("/api/v1/kb", {"title": "x", "content": "irrelevant content that is long enough"}),
     ("DELETE", "/api/v1/kb/{doc_id}"): ("/api/v1/kb/does-not-matter", {}),
+    ("POST", "/api/v1/kb/{doc_id}/restore"): ("/api/v1/kb/does-not-matter/restore", {}),
     ("POST", "/api/v1/kb/reindex"): ("/api/v1/kb/reindex", {}),
     ("POST", "/api/v1/agents/{agent_id}/clone"): ("/api/v1/agents/does-not-matter/clone", {}),
     ("POST", "/api/v1/incidents/{incident_id}/acknowledge"): ("/api/v1/incidents/does-not-matter/acknowledge", {}),
     ("POST", "/api/v1/incidents/{incident_id}/resolve"): ("/api/v1/incidents/does-not-matter/resolve", {"note": "x"}),
+    ("POST", "/api/v1/incidents/{incident_id}/reopen"): ("/api/v1/incidents/does-not-matter/reopen", {}),
 }
 
 

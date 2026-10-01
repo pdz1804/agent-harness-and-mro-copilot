@@ -193,9 +193,9 @@ def _to_detail(prompt: dict[str, Any]) -> PromptDetail:
     )
 
 
-def _get_readable_or_404(prompt_id: str, user: CurrentUser) -> dict[str, Any]:
-    prompt = prompts_repo.get_prompt(prompt_id)
-    if prompt is None or prompt.get("archived_at") is not None:
+def _get_readable_or_404(prompt_id: str, user: CurrentUser, *, include_deleted: bool = False) -> dict[str, Any]:
+    prompt = prompts_repo.get_prompt(prompt_id, include_deleted=include_deleted)
+    if prompt is None or (prompt.get("archived_at") is not None and not include_deleted):
         raise HTTPException(status_code=404, detail=f"unknown prompt '{prompt_id}'")
     if not rbac.can_read(user.id, user.role, _resource_of(prompt)):
         raise HTTPException(status_code=404, detail=f"unknown prompt '{prompt_id}'")
@@ -308,6 +308,18 @@ def delete_prompt(prompt_id: str, user: CurrentUser = Depends(require("mutate_pr
             "runtime and cannot be deleted.",
         )
     prompts_repo.archive_prompt(prompt_id)
+
+
+@router.post("/prompts/{prompt_id}/restore", response_model=PromptDetail)
+def restore_prompt(prompt_id: str, user: CurrentUser = Depends(require("mutate_prompts"))) -> PromptDetail:
+    """Undo a delete. 404 if the id is unknown or not deleted."""
+    prompt = _get_readable_or_404(prompt_id, user, include_deleted=True)
+    _require_writable(prompt, user)
+    if prompt.get("deleted_at") is None or not prompts_repo.restore_prompt(prompt_id):
+        raise HTTPException(status_code=404, detail=f"prompt '{prompt_id}' is not deleted")
+    restored = prompts_repo.get_prompt(prompt_id)
+    assert restored is not None
+    return _to_detail(restored)
 
 
 @router.post("/prompts/verify", response_model=prompt_verification.Verification)

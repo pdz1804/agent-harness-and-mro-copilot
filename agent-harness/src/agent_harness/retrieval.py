@@ -389,7 +389,7 @@ def _load_uploaded_docs() -> list[dict]:
         from agent_harness import db
 
         with db.connect() as conn:
-            return [dict(r) for r in conn.execute("SELECT * FROM kb_documents ORDER BY created_at, id").fetchall()]
+            return [dict(r) for r in conn.execute("SELECT * FROM kb_documents WHERE deleted_at IS NULL ORDER BY created_at, id").fetchall()]
     except Exception:  # noqa: BLE001 - retrieval must keep working without the DB table
         return []
 

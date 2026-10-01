@@ -74,8 +74,8 @@ def _resource_of(skill: dict[str, Any]) -> Resource:
     return Resource(owner_id=skill["owner_id"], visibility=skill["visibility"])
 
 
-def _get_readable_or_404(skill_id: str, user: CurrentUser) -> dict[str, Any]:
-    skill = skills_repo.get_skill(skill_id)
+def _get_readable_or_404(skill_id: str, user: CurrentUser, *, include_deleted: bool = False) -> dict[str, Any]:
+    skill = skills_repo.get_skill(skill_id, include_deleted=include_deleted)
     if skill is None:
         raise HTTPException(status_code=404, detail=f"unknown skill '{skill_id}'")
     if not rbac.can_read(user.id, user.role, _resource_of(skill)):
@@ -196,3 +196,15 @@ def delete_skill(skill_id: str, user: CurrentUser = Depends(require("mutate_skil
             status_code=409, detail=f"skill '{skill_id}' is bound to an agent and cannot be deleted"
         )
     skills_repo.delete_skill(skill_id)
+
+
+@router.post("/skills/{skill_id}/restore", response_model=SkillView)
+def restore_skill(skill_id: str, user: CurrentUser = Depends(require("mutate_skills"))) -> SkillView:
+    """Undo a delete. 404 if the id is unknown or not deleted."""
+    skill = _get_readable_or_404(skill_id, user, include_deleted=True)
+    _require_writable(skill, user)
+    if skill.get("deleted_at") is None or not skills_repo.restore_skill(skill_id):
+        raise HTTPException(status_code=404, detail=f"skill '{skill_id}' is not deleted")
+    restored = skills_repo.get_skill(skill_id)
+    assert restored is not None
+    return SkillView(**restored)

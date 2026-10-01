@@ -139,8 +139,8 @@ def _to_view(dashboard: dict[str, Any], widgets: list[dict[str, Any]]) -> Dashbo
     return DashboardView(**dashboard, widgets=[WidgetView(**w) for w in widgets])
 
 
-def _get_readable_or_404(dashboard_id: str, user: CurrentUser) -> dict[str, Any]:
-    dashboard = dashboards_repo.get_dashboard(dashboard_id)
+def _get_readable_or_404(dashboard_id: str, user: CurrentUser, *, include_deleted: bool = False) -> dict[str, Any]:
+    dashboard = dashboards_repo.get_dashboard(dashboard_id, include_deleted=include_deleted)
     if dashboard is None:
         raise HTTPException(status_code=404, detail=f"unknown dashboard '{dashboard_id}'")
     if not rbac.can_read(user.id, user.role, _resource_of(dashboard)):
@@ -247,6 +247,18 @@ def delete_dashboard(
     dashboard = _get_readable_or_404(dashboard_id, user)
     _require_writable(dashboard, user)
     dashboards_repo.delete_dashboard(dashboard_id)
+
+
+@router.post("/dashboards/{dashboard_id}/restore", response_model=DashboardView)
+def restore_dashboard(
+    dashboard_id: str, user: CurrentUser = Depends(require("mutate_artifacts"))
+) -> DashboardView:
+    """Undo a delete. 404 if the id is unknown or not deleted."""
+    dashboard = _get_readable_or_404(dashboard_id, user, include_deleted=True)
+    _require_writable(dashboard, user)
+    if dashboard.get("deleted_at") is None or not dashboards_repo.restore_dashboard(dashboard_id):
+        raise HTTPException(status_code=404, detail=f"dashboard '{dashboard_id}' is not deleted")
+    return get_dashboard(dashboard_id, user)
 
 
 @router.post("/dashboards/{dashboard_id}/widgets", response_model=WidgetView, status_code=201)

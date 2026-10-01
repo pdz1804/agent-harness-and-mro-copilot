@@ -32,6 +32,7 @@ Process-wide state (the in-memory `RunRegistry`, the LLM client factory) is in
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -46,6 +47,7 @@ from starlette.exceptions import HTTPException
 from agent_harness import db, dense_embeddings, settings
 from agent_harness.deps import current_user  # noqa: F401 - re-exported: tests call `api.current_user`
 from agent_harness.repos import evals as evals_repo
+from agent_harness.repos import trash
 from agent_harness.routers import (
     agents,
     automations,
@@ -89,6 +91,11 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Same for chat runs: this process has no live worker yet, so any run row
     # still `running`/`pending_approval` was orphaned by a previous process.
     db.mark_orphaned_runs()
+    # Hard-delete soft-deleted rows (Undo window) older than the retention period.
+    try:
+        trash.purge_expired()
+    except Exception:  # noqa: BLE001 - housekeeping must never keep the API from starting
+        logging.getLogger(__name__).exception("purging expired soft-deleted rows failed")
     yield
 
 

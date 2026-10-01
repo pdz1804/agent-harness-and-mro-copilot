@@ -70,10 +70,11 @@ def _session_view(row: dict) -> SessionView:
     )
 
 
-def _get_manageable_or_404(session_id: str, user: CurrentUser) -> dict:
-    """The session row for a rename/archive/delete: 404 when the caller cannot
-    see it (do not confirm the id exists), 403 when they can see but not manage it."""
-    row = db.get_session_with_latest_run(session_id)
+def _get_manageable_or_404(session_id: str, user: CurrentUser, *, include_deleted: bool = False) -> dict:
+    """The session row for a rename/archive/delete/restore: 404 when the caller
+    cannot see it (do not confirm the id exists), 403 when they can see but not
+    manage it. Soft-deleted sessions are invisible unless `include_deleted`."""
+    row = sessions_repo.get_session_with_latest_run(session_id, include_deleted=include_deleted)
     resource = Resource(owner_id=row.get("owner_id")) if row else None
     if row is None or resource is None or not rbac.can_read(user.id, user.role, resource):
         raise HTTPException(status_code=404, detail=f"unknown session_id '{session_id}'")
@@ -131,7 +132,11 @@ def get_session(session_id: str, user: CurrentUser = Depends(current_user)) -> S
     row = db.get_session_with_latest_run(session_id)
     if row is None or not rbac.can_read(user.id, user.role, Resource(owner_id=row.get("owner_id"))):
         raise HTTPException(status_code=404, detail=f"unknown session_id '{session_id}'")
+    return _session_detail(row)
 
+
+def _session_detail(row: dict) -> SessionDetail:
+    session_id = row["id"]
     live_records = [r for r in state.registry.list_runs() if r.session_id == session_id]
     live_ids = {r.run_id for r in live_records}
     live_runs = [RunSummary(**state.registry.summary(r)) for r in live_records]
@@ -166,9 +171,21 @@ def update_session(
 
 @router.delete("/sessions/{session_id}", status_code=204)
 def delete_session(session_id: str, user: CurrentUser = Depends(current_user)) -> None:
-    """Permanently delete a session with its runs, traces and feedback (owner or
-    admin). Refused with 409 while one of its runs is still in flight."""
+    """Soft-delete a session (owner or admin): hidden from every read and
+    permanently purged after the retention window unless restored. Refused with
+    409 while one of its runs is still in flight."""
     _get_manageable_or_404(session_id, user)
     if not state.registry.forget_session(session_id):
         raise HTTPException(status_code=409, detail="a run in this session is still in progress: stop it first")
     sessions_repo.delete_session(session_id)
+
+
+@router.post("/sessions/{session_id}/restore", response_model=SessionDetail)
+def restore_session(session_id: str, user: CurrentUser = Depends(current_user)) -> SessionDetail:
+    """Undo a delete (owner or admin). 404 if the id is unknown or not deleted."""
+    row = _get_manageable_or_404(session_id, user, include_deleted=True)
+    if row.get("deleted_at") is None or not sessions_repo.restore_session(session_id):
+        raise HTTPException(status_code=404, detail=f"session '{session_id}' is not deleted")
+    restored = sessions_repo.get_session_with_latest_run(session_id)
+    assert restored is not None
+    return _session_detail(restored)

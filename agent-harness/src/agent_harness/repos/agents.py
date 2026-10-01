@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from agent_harness import db
+from agent_harness.repos import trash
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 _SKILL_MODES = frozenset({"none", "assigned", "auto"})
@@ -62,25 +63,28 @@ def _row_to_agent(row: dict[str, Any]) -> dict[str, Any]:
 
 def list_agents(dsn: Optional[str] = None) -> list[dict[str, Any]]:
     with db.connect(dsn) as conn:
-        rows = conn.execute("SELECT * FROM agents ORDER BY is_default DESC, updated_at DESC").fetchall()
+        rows = conn.execute("SELECT * FROM agents WHERE deleted_at IS NULL ORDER BY is_default DESC, updated_at DESC").fetchall()
         return [_row_to_agent(r) for r in rows]
 
 
-def get_agent(agent_id: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
+def get_agent(
+    agent_id: str, dsn: Optional[str] = None, *, include_deleted: bool = False
+) -> Optional[dict[str, Any]]:
+    suffix = "" if include_deleted else " AND deleted_at IS NULL"
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM agents WHERE id = %s", (agent_id,)).fetchone()
+        row = conn.execute("SELECT * FROM agents WHERE id = %s" + suffix, (agent_id,)).fetchone()
         return _row_to_agent(row) if row else None
 
 
 def get_agent_by_slug(slug: str, dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM agents WHERE slug = %s", (slug,)).fetchone()
+        row = conn.execute("SELECT * FROM agents WHERE slug = %s AND deleted_at IS NULL", (slug,)).fetchone()
         return _row_to_agent(row) if row else None
 
 
 def get_default_agent(dsn: Optional[str] = None) -> Optional[dict[str, Any]]:
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT * FROM agents WHERE is_default LIMIT 1").fetchone()
+        row = conn.execute("SELECT * FROM agents WHERE is_default AND deleted_at IS NULL LIMIT 1").fetchone()
         return _row_to_agent(row) if row else None
 
 
@@ -106,6 +110,7 @@ def create_agent(
     now = _now()
     agent_id = _new_id()
     with db.connect(dsn) as conn:
+        trash.release_slug(conn, "agents", slug)
         conn.execute(
             "INSERT INTO agents "
             "(id, slug, name, description, avatar_color, prompt_id, prompt_version_id, "
@@ -196,17 +201,27 @@ def update_agent(
     values.append(_now())
     values.append(agent_id)
     with db.connect(dsn) as conn:
-        cur = conn.execute(f"UPDATE agents SET {', '.join(fields)} WHERE id = %s", tuple(values))
+        cur = conn.execute(f"UPDATE agents SET {', '.join(fields)} WHERE id = %s AND deleted_at IS NULL", tuple(values))
         if cur.rowcount == 0:
             return None
     return get_agent(agent_id, dsn)
 
 
 def delete_agent(agent_id: str, dsn: Optional[str] = None) -> bool:
-    """Hard-delete. Returns False if unknown. The router refuses this (409)
-    for the current default agent — checked by the caller, not here."""
+    """Soft-delete (restorable until purged). False if unknown or already
+    deleted. The router refuses this (409) for the current default agent —
+    checked by the caller, not here."""
     with db.connect(dsn) as conn:
-        cur = conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
+        cur = conn.execute(
+            "UPDATE agents SET deleted_at = %s WHERE id = %s AND deleted_at IS NULL", (trash.now_iso(), agent_id)
+        )
+        return cur.rowcount > 0
+
+
+def restore_agent(agent_id: str, dsn: Optional[str] = None) -> bool:
+    """Undo `delete_agent`. False if the id is unknown or not deleted."""
+    with db.connect(dsn) as conn:
+        cur = conn.execute("UPDATE agents SET deleted_at = NULL WHERE id = %s AND deleted_at IS NOT NULL", (agent_id,))
         return cur.rowcount > 0
 
 
@@ -216,7 +231,7 @@ def is_skill_bound_to_any_agent(skill_id: str, dsn: Optional[str] = None) -> boo
     currently contain this skill?"""
     with db.connect(dsn) as conn:
         row = conn.execute(
-            "SELECT 1 FROM agents WHERE %s = ANY(skill_ids) LIMIT 1", (skill_id,)
+            "SELECT 1 FROM agents WHERE %s = ANY(skill_ids) AND deleted_at IS NULL LIMIT 1", (skill_id,)
         ).fetchone()
         return row is not None
 
@@ -226,7 +241,7 @@ def count_agents_bound_to_prompt(prompt_id: str, dsn: Optional[str] = None) -> i
     `used_by_agents` gap phase 02 left open (`PromptSummary.used_by_agents`,
     always 0 until agents existed)."""
     with db.connect(dsn) as conn:
-        row = conn.execute("SELECT COUNT(*) AS n FROM agents WHERE prompt_id = %s", (prompt_id,)).fetchone()
+        row = conn.execute("SELECT COUNT(*) AS n FROM agents WHERE prompt_id = %s AND deleted_at IS NULL", (prompt_id,)).fetchone()
         return row["n"] if row else 0
 
 
