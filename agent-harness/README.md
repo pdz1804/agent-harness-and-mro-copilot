@@ -1,21 +1,84 @@
 # Agent Harness
 
 An LLM <-> tool execution harness for an ops assistant, built for the
-STEMS VN AI Engineer take-home test. It runs an objective through a
-decide -> validate -> (approve) -> execute -> record loop, with schema
-validation, retries/timeouts, a human-approval gate on `create_incident`,
-step/wall-clock limits, and a structured JSONL trace per run — exposed via
-a CLI, a FastAPI backend with a real pause/resume approval flow, and a
-web console (`web/`) for watching a run live and approving/denying from
-the browser.
+STEMS VN AI Engineer take-home test, grown into a small internal platform:
+real RBAC, a prompt library, named agents with skill routing, live
+dashboards, a chat inspector, and an LLM-as-judge eval agent — all on top
+of the original decide -> validate -> (approve) -> execute -> record loop
+(schema validation, retries/timeouts, a human-approval gate on
+`create_incident`, step/wall-clock limits, a structured trace per run).
+Exposed via a CLI, a FastAPI backend with a real pause/resume approval
+flow, and a React/TypeScript web console (`web/`) — a 15-tab ops platform
+for watching a run live, approving/denying from the browser, managing
+agents/skills/prompts, and scoring run quality.
 
 **Everything is real except input data.** The LLM is a real OpenAI model
-with native tool calling; `search_knowledge_base` is real BM25 retrieval
-over a mock runbook corpus; `get_service_status`/`create_incident`/run
-history are backed by a real SQLite database. Only the *content* is
-mock: the 18 runbook docs in `data/kb/`, the seed services in
-`data/seed/services.json`. See `docs/design-report.md` for the full
-design and `docs/demo-evidence.md` for real captured transcripts.
+with native tool calling; `search_knowledge_base` is real BM25/hybrid
+retrieval over a mock runbook corpus; every entity (services, incidents,
+runs, events, prompts, skills, agents, dashboards, eval results, users) is
+backed by a real Postgres database (via `docker-compose.yml` + Alembic
+migrations). Only the *content* is mock: the 18 runbook docs in
+`data/kb/`, the seed services in `data/seed/services.json`, and the 4
+seeded users' identities (see "RBAC" below — real enforcement, not real
+authentication). See `docs/design-report.md` for the full design
+(including the v3 sections on RBAC, skill routing, dashboard safety
+layers, and eval-judge methodology) and `docs/product/PRD.md` for the
+product scope/status.
+
+## Quickstart (one command, after setup)
+
+```powershell
+docker compose up -d                 # Postgres :5433 + MLflow :5001
+alembic upgrade head                 # create/upgrade schema, seed data
+copy .env.example .env                # then set OPENAI_API_KEY
+cd web; npm install; npm run build; cd ..
+uvicorn api:app
+```
+
+Open **http://127.0.0.1:8000/**. That one process serves the API and the
+built web console together — there's nothing else to start. See "Setup"
+below for first-time details (Python venv, Node version, etc.).
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Browser
+        UI["React/TS web console\n(web/, 18 pages, hash routing)"]
+    end
+    subgraph API["api.py — FastAPI (one uvicorn process)"]
+        Routers["routers/: agents, skills, prompts, dashboards, evals"]
+        Core["POST /run, /runs (+approve/events/export),\n/services, /incidents, /kb, /me"]
+    end
+    subgraph Harness["src/agent_harness/"]
+        Loop["loop.py — AgentLoop\n(Pydantic AI Agent.iter(), state machine)"]
+        Runtime["agent_runtime.py — resolves agent ->\nprompt + skill mode + tool set"]
+        RBAC["rbac.py — role x action matrix\n+ ownership/visibility"]
+        Tools["tools/ — search_knowledge_base,\nget_service_status, create_incident"]
+        Retrieval["retrieval.py — BM25 + optional\ndense embeddings (hybrid)"]
+        EvalAgent["eval/ — judge.py (LLM-as-judge)\n+ metrics.py (deterministic)"]
+        DB["db.py / repos/ — psycopg over Postgres"]
+    end
+    subgraph Infra["Docker"]
+        PG[("Postgres :5433\nservices, incidents, runs, events,\nprompts, skills, agents, dashboards,\neval_runs, eval_results, users")]
+        MLflow["MLflow :5001\ntraces + eval runs"]
+        OpenAI(["OpenAI API\ngpt-4o-mini, native tool calling"])
+    end
+
+    UI -->|X-User-Id header| API
+    Routers --> RBAC
+    Core --> Runtime --> Loop
+    Loop --> Tools
+    Tools --> DB
+    Tools --> Retrieval
+    Loop -->|trace| DB
+    Loop -->|trace| MLflow
+    Loop <--> OpenAI
+    EvalAgent --> DB
+    EvalAgent --> MLflow
+    EvalAgent <--> OpenAI
+    DB --> PG
+```
 
 ## Architecture summary
 
@@ -28,24 +91,26 @@ web/                       React/TypeScript ops console (built -> served
         |
 src/agent_harness/loop.py  AgentLoop: the state machine / execution loop
         |
-        +-- llm_client.py    LLMClient interface + ScriptedLLMClient (tests),
-        |                    HeuristicMockLLMClient (CI-only test double),
-        |                    OpenAIChatLLMClient (real default; native
-        |                    tools= tool calling; requires OPENAI_API_KEY)
+        +-- llm_client.py    pydantic_ai.models.Model factories:
+        |                    build_openai_model() (real default; native
+        |                    tool calling; requires OPENAI_API_KEY),
+        |                    build_scripted_model()/build_router_model()/
+        |                    build_test_model() (deterministic test doubles,
+        |                    zero network calls)
         +-- tools/           3 tools (input/output schemas are pydantic;
         |                      the tool schemas OpenAI sees are generated
         |                      directly from them):
         |                      search_knowledge_base (real BM25, retrieval.py)
-        |                      get_service_status (real SQLite, db.py)
-        |                      create_incident (real SQLite insert,
+        |                      get_service_status (real Postgres, db.py)
+        |                      create_incident (real Postgres insert,
         |                        requires_approval = True, idempotent per run)
         +-- retrieval.py     BM25Okapi index over data/kb/*.md
-        +-- db.py            SQLite persistence: services, incidents, runs, events
-        +-- settings.py      .env-driven config (OPENAI_API_KEY/MODEL, DB/KB paths)
+        +-- db.py            Postgres persistence (psycopg): services, incidents, runs, events
+        +-- settings.py      .env-driven config (OPENAI_API_KEY/MODEL, DATABASE_URL, KB paths)
         +-- approval.py      ApprovalCallback seam (CLI prompt / fixed / custom)
         +-- run_registry.py  Async run store: one background thread per run,
         |                      Event-based approval callback for POST /runs,
-        |                      write-through to SQLite so GET /runs survives restart
+        |                      write-through to Postgres so GET /runs survives restart
         +-- trace_logger.py  JSONL writer: one line per event, runs/<run_id>.jsonl;
         |                      optional on_event hook streams live progress to
         |                      run_registry without a second history format
@@ -54,7 +119,11 @@ src/agent_harness/loop.py  AgentLoop: the state machine / execution loop
 ```
 
 Each loop iteration ("step") does:
-1. Check wall-clock and step limits; abort cleanly if exceeded.
+1. Check wall-clock and step limits; abort cleanly if exceeded. The wall
+   clock measures agent compute only: time spent waiting on a human approval
+   has its own budget (`APPROVAL_TIMEOUT_SECONDS`, default 15 min). An
+   approval nobody answers ends the run as `cancelled` with an
+   `approval_timed_out` event, never as a silent denial.
 2. Ask the LLM client for a decision (`raw_decide`), validate it as an
    `LLMDecision` (pydantic). Malformed output is retried up to
    `max_llm_retries`; if `final_answer`, the run completes.
@@ -67,9 +136,59 @@ Each loop iteration ("step") does:
 5. Record every sub-step as a structured `AgentEvent`, both in-memory
    (`RunResult.history`) and streamed to `runs/<run_id>.jsonl`.
 
+## RBAC: seeded users and the identity switcher
+
+**Honesty note: this is a local identity switcher, not authentication.**
+There is no login form, password, or session token — the web console's
+user switcher (top of the sidebar) just sets an `X-User-Id` header (SSE
+connections pass `?as_user=` instead) that the server resolves to one of 4
+seeded users. Anyone with `curl` can set that header to any user id and
+act as them; this is a deliberate, documented scope cut for a local-only
+take-home app, not an oversight.
+
+What **is** real: `agent_harness/rbac.py` enforces a role -> action
+permission matrix, and a per-resource ownership+visibility check
+(`owner_id` + `private`/`shared`), on every single mutating route — a
+viewer gets a real 403 from the server if they try to mutate anything past
+chat, regardless of what the UI shows; a parametrized test
+(`tests/test_rbac.py`) walks every `POST`/`PATCH`/`DELETE` route
+registered on the FastAPI app and asserts exactly this.
+
+| User id | Display name | Role | Can do |
+|---|---|---|---|
+| `u_admin` | Alice Admin | `admin` | Everything, including admin-only Integrations/Guardrails, and sees every private resource regardless of owner. |
+| `u_editor` | Evan Editor | `editor` | Create/edit prompts, skills, agents, automations, dashboards, own service-status changes, and start eval scoring runs — but only on resources they own (or shared ones, read-only); cannot touch Integrations/Guardrails. |
+| `u_editor2` | Erin Editor | `editor` | A second editor identity, seeded specifically so RBAC tests/demos can show editor-vs-other-editor's-private-resource denial (404, not 403 — existence isn't leaked). |
+| `u_viewer` | Vera Viewer | `viewer` | Chat (create sessions/runs, approve their own run's pending approval) and read shared/own resources; cannot mutate any config. |
+
+## Feature tour (every sidebar tab)
+
+| Tab | What's real |
+|---|---|
+| **New chat** (`/`) | Objective composer; `/slug` slash-command autocomplete for any enabled skill. |
+| **Sessions** | Every chat session persisted in Postgres, resumable; a session mid-run stays "live" (polls/reconnects to the real run state) even after a refresh or a new tab. |
+| **Run page** (opened from Sessions/New chat) | Live SSE trace, approve/deny panel, token usage, and the **chat inspector** (`Ctrl+.`): Timeline/Tools/Reasoning/Context/Raw tabs over the run's real persisted events, down to 375px wide. |
+| **Memory** | Per-session conversation memory surfaced explicitly: every run's full trace, oldest first, read back from the same persisted `runs`/`events` rows. |
+| **Services** | Real Postgres-backed mock service registry; flip a status (RBAC: `mutate_services`) to create a real scenario for the agent to investigate. |
+| **Incidents** | Real incidents created by approved `create_incident` tool calls, linked back to the originating run. |
+| **Knowledge base** | Open any document (rendered, as the indexed chunks, or raw) with search hits highlighted and metadata; add/upload and delete documents (really chunked and indexed); reindex; a retrieval playground with BM25 / vector / fused scores per chunk. Hybrid BM25 + dense search over the mock runbook corpus plus whatever you add. |
+| **Integrations** | Admin-only on/off toggles per tool — disabling one really removes it from the LLM's available tool list for new runs. |
+| **Prompts** | Versioned system-prompt registry: every version is verified (lint rules + optional LLM review, stored per version) before it can be activated; roll back; diff; per-version usage counts; a **Playground** chats with a real agent using any version or an unsaved draft (real tools, real approval gate) or compares two versions side by side. A run records the exact prompt version it used; an agent can pin one. |
+| **Guardrails** | Admin-only, real input/output checks (blocked objective patterns, severity-downgrade rules), applied before/after LLM calls, traced when triggered. |
+| **Automations** | Editor+ rule engine (e.g. "if a service flips to `down`, auto-start an investigation run"). |
+| **Agents** | Named entity binding a prompt (+ optional pinned version), a skill-routing mode (`none`/`assigned`/`auto`), and a base tool set; one is marked default. |
+| **Skills** | Reusable capability: instructions + `allowed_tools` subset + description (the routing signal for `auto` mode). |
+| **Dashboards** | 4 templates (blank/ops-overview/agent-performance/incident-analytics) **or ask the agent** ("build me a dashboard of incidents by severity over time" — the `create_dashboard` tool pauses on an approval card showing the widgets, their SQL and a live dry run); duplicate; saved auto-refresh interval. Every widget stores a real SQL query, executed on Refresh under a least-privilege Postgres role over owner-scoped views (parse allowlist + `harness_reader` + READ ONLY + timeout/row cap — `docs/design-report.md` §11c). |
+| **Evals** | LLM-as-judge scoring ("Score my sessions") + a metrics overview (per-metric KPIs, 30-day trend, worst runs, per-agent breakdown) — see `docs/design-report.md` §11d for the judge methodology and its limitations, and the wall-clock-vs-agent-only latency split. |
+| **Logs** | Persisted run list, filterable, per-run JSON export. |
+
 ## Requirements
 
 - Python 3.10+
+- Docker (for the Postgres persistence layer — `docker-compose.yml` at the
+  project root). Running the test suite does **not** require a manual
+  `docker compose up`: it uses `testcontainers` to spin up (and tear down)
+  a throwaway Postgres automatically. Running the CLI/API for real does.
 - No API key needed to run the tests (they use `ScriptedLLMClient`/
   `HeuristicMockLLMClient` exclusively — zero network calls).
 - A real `OPENAI_API_KEY` **is** needed to run real objectives through the
@@ -89,6 +208,32 @@ pip install -e ".[dev]"
 
 (bash/macOS/Linux equivalent: `python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`)
 
+### Database (Postgres + Alembic)
+
+Start Postgres (a named Docker volume persists data across restarts; host
+port 5433 to avoid clashing with any other local Postgres):
+
+```powershell
+docker compose up -d postgres
+```
+
+Apply migrations (creates `services`, `incidents`, `runs`, `events`,
+`chat_sessions`, `users`, `prompts`/`prompt_versions`, `skills`, `agents`,
+`dashboards`/`dashboard_widgets`, `eval_runs`/`eval_results`, seeding the 4
+RBAC users and the default prompt/skill/agent library):
+
+```powershell
+alembic upgrade head
+```
+
+Both the CLI and API call `db.ensure_ready()` on startup, which verifies
+the schema is present (failing fast with a clear message if you skipped
+`alembic upgrade head`) and seeds `services` from
+`data/seed/services.json` if the table is empty. Connection string is
+`DATABASE_URL` in `.env` (see `.env.example`); defaults to
+`postgresql://agent_harness:agent_harness@localhost:5433/agent_harness`,
+matching `docker-compose.yml`.
+
 ## Configure your API key
 
 ```powershell
@@ -106,15 +251,47 @@ codebase. See `.env.example` for every variable this harness reads.
 pytest
 ```
 
-Expected: 52 tests pass, 0 failures, **no API key required** — the
-default `pytest` run excludes the one opt-in live test via the `live`
-marker. The suite exercises `ScriptedLLMClient`/`HeuristicMockLLMClient`
-exclusively for LLM decisions; `OpenAIChatLLMClient`'s request/response
-parsing is separately tested against fake-but-structurally-real SDK
+Expected: 450+ tests pass, 0 failures, **no API key required, no manual
+`docker compose up` required** — the default `pytest` run excludes the 2
+opt-in `live` tests via the `live` marker (`-m "not live"`, set in
+`pyproject.toml`'s `addopts`). `tests/conftest.py` spins up a throwaway
+Postgres via `testcontainers` once per session (runs `alembic upgrade
+head` against it), truncates every table before each test, and tears the
+container down at session end. To run against an already-running Postgres
+instead (e.g. offline, or when Docker-in-Docker isn't available), set
+`AGENT_HARNESS_TEST_DATABASE_URL` — e.g. after `docker compose up -d
+postgres`:
+
+```powershell
+$env:AGENT_HARNESS_TEST_DATABASE_URL = "postgresql://agent_harness:agent_harness@localhost:5433/agent_harness"
+pytest
+```
+
+The suite exercises `agent_harness.llm_client`'s deterministic test
+doubles (`build_scripted_model`/`build_router_model`/`build_test_model`)
+exclusively for LLM decisions; `build_openai_model()`'s request/response
+handling is separately tested against fake-but-structurally-real SDK
 objects (`tests/test_openai_client.py`), still with zero network calls.
 `tests/conftest.py` forces `AGENT_HARNESS_RETRIEVAL_MODE=bm25` for the
 whole suite so it never needs to download the local embedding model —
 hybrid retrieval quality is instead measured by the eval script below.
+
+### End-to-end smoke test
+
+`tests/test_e2e_smoke.py` (marked `e2e`, runs as part of the default suite
+above — not excluded like `live`) drives the real HTTP API through one full
+journey: login-as an editor -> create a skill -> create an agent (auto
+mode) -> run via `/slug` and auto-discover modes -> approve a sensitive
+tool call -> refresh a dashboard from a template -> score sessions (eval
+agent) -> read the metrics overview (including the `agent_latency_ms` vs
+`latency_ms` split). By default every LLM call is a deterministic double
+(network-free); pass `--live` to run the exact same journey against the
+real OpenAI API instead:
+
+```powershell
+pytest tests/test_e2e_smoke.py -v            # deterministic doubles
+pytest tests/test_e2e_smoke.py -v --live     # real OpenAI API (needs OPENAI_API_KEY)
+```
 
 ## Retrieval quality eval (BM25 vs dense vs hybrid)
 
@@ -135,6 +312,58 @@ key; skipped automatically otherwise):
 ```powershell
 pytest -m live
 ```
+
+## MLflow observability (tracing + recorded-transcript eval)
+
+Bring up the `mlflow` service alongside Postgres (reuses the same
+container, a separate `mlflow` database — see `docker-compose.yml`):
+
+```powershell
+docker compose up -d
+```
+
+Open the MLflow UI at **http://localhost:5001**. Point the app at it by
+setting `MLFLOW_TRACKING_URI=http://localhost:5001` in `.env` (see
+`.env.example`) — unset/empty disables tracing entirely, which is the
+default for `pytest` so the suite never depends on the server running.
+
+Every real run then produces a real, nested MLflow trace: one `agent_run`
+span per objective, with `llm_request`/`llm_decision`/`tool_call:<name>`
+spans nested inside it (manual `@mlflow`-style spans via
+`agent_harness/observability.py`, since `mlflow.pydantic_ai.autolog()`'s
+own documented compatibility range is pydantic-ai 0.2.19-1.94.0 — this
+project pins `pydantic-ai==2.51.0`, outside it; autolog is still enabled
+underneath and does add extra granular `OpenAIChatModel.request`/tool
+spans when reachable via the real provider, they just don't group into one
+trace per run on their own — see that module's docstring for the verified
+findings). Trigger one real trace with:
+
+```powershell
+python cli.py --auto-approve "What is the status of auth-service?"
+```
+
+then open http://localhost:5001, select the `agent-harness` experiment,
+and open the newest trace.
+
+Recorded-transcript regression eval — capture real transcripts against the
+real API (already checked in under `src/agent_harness/eval/transcripts/`,
+so this step is optional unless you want to refresh them):
+
+```powershell
+python -m agent_harness.eval.capture_transcripts
+```
+
+Score them and produce a real MLflow eval run:
+
+```powershell
+$env:MLFLOW_TRACKING_URI = "http://localhost:5001"
+python -m agent_harness.eval.run_eval
+```
+
+Prints each scorer's pass rate and a per-scenario table, and creates a real
+run under the `agent-harness-eval` experiment in the MLflow UI. See
+`docs/design-report.md`'s observability section for a captured example of
+this output.
 
 ## Run the CLI
 
@@ -166,7 +395,7 @@ below).
 
 `HeuristicMockLLMClient` is now a CI-only test double, not the CLI's
 default. Pass `--mock` to explicitly opt into it for an offline demo (no
-API key, no network) — retrieval and SQLite persistence are still fully
+API key, no network) — retrieval and Postgres persistence are still fully
 real, only the decision policy is the small rule set:
 
 ```powershell
@@ -192,14 +421,19 @@ Open **http://127.0.0.1:8000/** in a browser. That's the whole app: submit
 an objective, watch the live trace, approve/deny `create_incident` when it
 pauses, browse run history.
 
-`api.py` mounts `web/dist` at `/` only if that directory exists (guarded,
+`api.py` mounts `web/dist` (override with `AGENT_HARNESS_WEB_DIST=<dir>` to serve a side-by-side build, e.g. `npm run build -- --outDir dist-v4`) at `/` only if that directory exists (guarded,
 so `uvicorn api:app` and the test suite both still work before you've run
 `npm run build` — you'll just get 404 on `/` and the API endpoints keep
-working). The web app uses hash-based routing (`/#/runs/<id>`) on purpose:
-since the backend serves the build as plain static files, only the
-literal `/` resolves to `index.html` server-side; hash routes never hit
-the server's router, so refreshing or deep-linking into a run always
-works without a SPA-fallback catch-all route.
+working).
+
+**URL layout.** Every API route lives under **`/api/v1`** (interactive docs at
+`/api/v1/docs`, schema at `/api/v1/openapi.json`); `/health` is also served
+unprefixed for probes and scripts. Any other non-API `GET` is the web console:
+a real file from the build if one exists, otherwise `index.html` (SPA history
+fallback), so clean UI paths such as `/sessions/<id>`, `/dashboards/<id>` and
+`/evals` survive a refresh or a deep link. Unknown `/api/...` paths are a real
+404 and a missing `*.js`/`*.css` asset is a 404, never HTML. The route names
+quoted below (`/runs`, `/incidents`, ...) are relative to `/api/v1`.
 
 **Optional: frontend-only dev loop** (hot reload while iterating on the
 UI). Two terminals — backend on 8000, Vite's own dev server on 5173:
@@ -249,7 +483,7 @@ verified end to end.
   `AgentEvent`s, pushed the instant each is recorded (no polling); the web
   console's run page uses this for live updates, falling back to one
   `GET /runs/{run_id}` snapshot on load. Closes with a `stream_end` event
-  once the run finishes. `curl -N http://127.0.0.1:8000/runs/<id>/events`
+  once the run finishes. `curl -N http://127.0.0.1:8000/api/v1/runs/<id>/events`
   to watch a run live.
 - **`GET /runs/{run_id}/export`** — full run + trace as one JSON document
   (used by the web console's Logs page "Export" button, and for attaching
@@ -264,18 +498,28 @@ at `postman/agent-harness.postman_collection.json`.
 | Tool | Approval required | Notes |
 |---|---|---|
 | `search_knowledge_base(query)` | No | Real BM25 ranking (`rank-bm25`) over `data/kb/*.md` — 18 mock ops runbooks, chunked and indexed at process start. |
-| `get_service_status(service_name)` | No | Real SQLite read from `data/harness.db`, seeded once from `data/seed/services.json` (`auth-service`, `payments-api`, `search-index`, plus 2 more). Unknown names raise a simulated failure, exercising the retry path. Flip a status live via the web console's Services page or `POST /services/{name}/status`. |
-| `create_incident(title, description, severity)` | **Yes** | Real SQLite insert; idempotent per run (same `run_id` + `title` returns the existing row instead of duplicating). Still no external incident system is contacted. |
+| `get_service_status(service_name)` | No | Real Postgres read from `services`, seeded once from `data/seed/services.json` (`auth-service`, `payments-api`, `search-index`, plus 2 more). Unknown names raise a simulated failure, exercising the retry path. Flip a status live via the web console's Services page (RBAC: `mutate_services`) or `POST /services/{name}/status`. |
+| `create_incident(title, description, severity)` | **Yes** | Real Postgres insert; idempotent per run (same `run_id` + `title` returns the existing row instead of duplicating). Still no external incident system is contacted. |
+| `create_dashboard(name, widgets[])` / `add_widget(dashboard_id, widget)` | **Yes** | Real dashboards of read-only SQL widgets. A dry run of every widget (same read-only path as production) happens before the approval card, which shows name, widgets, SQL and live row counts. Editors/admins only (RBAC removes the tools for viewers); both are Integrations toggles. |
 
-## New API surface (phase 6)
+## API surface
+
+The full route list (agents/skills/prompts/dashboards/evals routers plus
+the core endpoints) is easiest to read straight from FastAPI's own docs —
+run the app and open **http://127.0.0.1:8000/docs**. The endpoints most
+worth knowing about beyond the run flow below:
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | `{status, llm_configured, llm_model, llm_last_error}` — the UI's health banner distinguishes "not configured" (`llm_configured=false`) from "configured but the last real call failed" (`llm_last_error` set to the real provider message). |
+| `GET /me` | Resolves the caller's `X-User-Id` header to `{id, name, role, permissions}` — what the RBAC-aware UI controls key off of. |
 | `GET /services` / `POST /services/{name}/status` | List / flip mock service statuses. |
 | `GET /incidents` | Real incidents created by approved `create_incident` calls. |
-| `GET /kb` | List all indexed KB docs. |
-| `POST /kb/search` | Same BM25 ranking function the `search_knowledge_base` tool uses. |
+| `GET /kb`, `GET /kb/{id}?q=`, `POST /kb`, `DELETE /kb/{id}`, `POST /kb/reindex`, `POST /kb/retrieve`, `POST /kb/search` | List / read a document with chunks and matches / add / delete / reindex / chunk-level scores / the doc-level search the tool uses. |
+| `GET/POST /agents`, `/skills`, `/prompts` | CRUD for the 3 entities an agent binds together; see `docs/design-report.md` §11b. |
+| `GET/POST /dashboards`, `.../refresh`, `POST /queries/preview` | Dashboard CRUD + live widget SQL execution; see §11c. |
+| `POST /prompts/verify`, `POST /prompts/{id}/versions/{vid}/verify`, `POST /runs` with `playground`, `POST /runs/{id}/cancel` | Verify a draft or a saved version; run with an explicit system prompt; stop a run. |
+| `POST /eval-runs`, `GET /eval-metrics/overview` | Start/poll an eval-judge scoring run; read the metrics overview; see §11d. |
 
 ## Trace format
 
@@ -290,25 +534,34 @@ Each line in `runs/<run_id>.jsonl` is one JSON object:
 `tool_call_result`, `tool_call_error`, `tool_call_timeout`,
 `tool_call_retry`, `tool_call_retries_exhausted`, `approval_requested`,
 `approval_granted`, `approval_denied`, `final_answer`,
-`step_limit_exceeded`, `time_limit_exceeded`.
+`step_limit_exceeded`, `time_limit_exceeded`, plus v3's routing/safety
+events: `skill_routed` (auto-mode router decision), `skill_invoked`
+(`/slug` forced a skill), `skills_assigned` (assigned-mode tool scoping),
+`guardrail_blocked`, `guardrail_severity_downgraded`.
 
 ## Project layout
 
 ```
 agent-harness/
+  docker-compose.yml       postgres:16 service (host port 5433)
+  alembic.ini, alembic/    schema migrations (`alembic upgrade head`)
   src/agent_harness/       harness package (see architecture summary above)
   data/kb/                 18 mock ops runbooks (*.md), BM25-indexed
   data/seed/services.json  mock service seed data
-  data/harness.db          SQLite DB (gitignored, created on first boot)
-  tests/                   pytest suite (52 tests + 1 opt-in live test)
+  tests/                   pytest suite (330+ tests + 2 opt-in `live` tests
+                              + test_e2e_smoke.py, marked `e2e`, default-on)
   cli.py                   CLI entrypoint
   api.py                   FastAPI entrypoint (sync + async run flows,
-                              /services, /incidents, /kb; serves web/dist
-                              as static files once built)
-  web/                     React/TypeScript ops console (Vite + Tailwind)
+                              /services, /incidents, /kb, /me; includes
+                              routers/{agents,skills,prompts,dashboards,evals};
+                              serves web/dist as static files once built)
+  web/                     React/TypeScript ops console (Vite + Tailwind,
+                              15 sidebar tabs — see "Feature tour" above)
   postman/                 Postman collection for the API
-  docs/design-report.md    submission write-up (architecture diagram,
-                              env vars, limitations, future work)
+  docs/design-report.md    design write-up (architecture, env vars,
+                              limitations, future work, v3 RBAC/skills/
+                              dashboards/eval-judge design in §11)
+  docs/product/PRD.md      product requirements + v3 status table (§8)
   docs/demo-evidence.md    real captured transcripts
   .env.example             copy to .env and fill in OPENAI_API_KEY
   runs/                    JSONL trace files (written at run time)
@@ -316,26 +569,46 @@ agent-harness/
 
 ## Known limitations
 
-See `docs/design-report.md` sections 6-9 for the full list; the short
-version: `POST /run` is still request-level pre-authorization (kept for
-non-UI callers); the real pause/resume flow is `POST /runs` + friends,
-used by the web console; SQLite persistence covers the async API run flow
-(`GET /runs`/`/incidents` survive a restart, including the new Logs page
-and `GET /runs/{id}/export`) but not CLI-originated runs, which still only
-write the JSONL trace; `HeuristicMockLLMClient` is a small rule set kept
-only as a CI test double, not the runtime default; retrieval is hybrid
-(BM25 + local dense embeddings, see the eval above) but the embedding
-model's first-use load can take several seconds (see design-report.md §8
-"cold-start embedding latency"); the SSE stream (`GET /runs/{id}/events`)
-pushes structured `AgentEvent`s in real time but does not stream
-individual LLM tokens (see design-report.md §8's scope note).
+See `docs/design-report.md` §6 (original) and §11 (v3) for the full list;
+the short version:
+
+- **The identity switcher is not authentication.** `X-User-Id` is a plain,
+  trivially-spoofable header; there is no login, password, or session.
+  RBAC enforcement (the role/ownership/visibility checks) is real, but
+  "who you are" is not verified. Fine for a local, single-operator/demo
+  tool; not something to expose past localhost as-is.
+- `POST /run` is still request-level pre-authorization (kept for non-UI
+  callers); the real pause/resume flow is `POST /runs` + friends, used by
+  the web console.
+- Postgres persistence covers the async API run flow (`GET /runs`/
+  `/incidents` survive a restart, including the Logs page and `GET
+  /runs/{id}/export`) but not CLI-originated runs, which still only write
+  the JSONL trace.
+- Retrieval is hybrid (BM25 + local dense embeddings) but the embedding
+  model's first-use load can take several seconds (design-report.md §8
+  "cold-start embedding latency").
+- The SSE stream (`GET /runs/{id}/events`) first replays the run's history
+  so far (a client that connects late still sees a pending approval), then
+  pushes each `AgentEvent` and live `llm_token_delta` as it is recorded. The
+  run page also re-reads `GET /runs/{id}` every 3 s while a run is in flight,
+  so status and approvals converge even if a proxy or the browser's
+  per-host connection limit holds the stream back.
+- The eval judge scores one transcript at a time with no calibration
+  step against human review, and scoring runs are manually triggered only
+  (no scheduled/recurring evals) — design-report.md §11d.
+- Dashboard widget SQL is read-only-enforced three ways (parser + `READ
+  ONLY` transaction + statement timeout/row cap — §11c) but there is no
+  dedicated read-only Postgres role for it; it runs as the same app user.
+- RBAC is a 3-role matrix + ownership/visibility, not per-object ACLs —
+  sufficient for this app's resource shapes, not a general permission
+  system.
 
 ## Traces and logs persist across restarts
 
 Every run's full event history is written twice: append-only to
 `runs/<run_id>.jsonl` as it happens (survives even a hard crash mid-run),
-and to the `runs`/`events` tables in `data/harness.db` (SQLite) once each
-event is recorded. Both survive a process restart — `GET /runs`, the
+and to the `runs`/`events` tables in Postgres once each event is recorded.
+Both survive a process restart — `GET /runs`, the
 **Logs** page (filterable by status/incident/date, with a per-run JSON
 export button), and `GET /runs/{id}/export` all read from this same
 persisted store. This is the audit log a real ops team would want: every

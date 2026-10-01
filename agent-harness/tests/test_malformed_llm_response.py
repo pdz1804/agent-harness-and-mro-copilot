@@ -1,23 +1,22 @@
-"""Malformed LLM responses: the raw LLM client can emit invalid JSON shapes.
-The harness must validate (not just try/except blindly), retry up to
-`max_llm_retries`, recover if a later attempt is valid, and abort cleanly
-with a terminal state if retries are exhausted."""
+"""Malformed LLM responses: the underlying model can produce output Pydantic
+AI itself cannot turn into a valid decision (simulated here via a
+`FunctionModel` callback that raises). The harness must catch this, retry
+up to `max_llm_retries`, recover if a later attempt is valid, and abort
+cleanly with a terminal state if retries are exhausted."""
 
 from __future__ import annotations
 
 from agent_harness.config import HarnessConfig
-from agent_harness.llm_client import ScriptedLLMClient
+from agent_harness.llm_client import build_raising_then_scripted_model
 from agent_harness.loop import AgentLoop
 
 
 def test_malformed_response_then_recovery(tools, runs_dir, fast_config):
-    script = [
-        {"action": "tool_call"},  # missing required tool_name/tool_args -> invalid
-        {"not_a_valid_field": True},  # missing action entirely -> invalid
-        {"action": "final_answer", "final_answer": "Recovered after 2 malformed attempts."},
-    ]
-    llm = ScriptedLLMClient(script)
-    loop = AgentLoop(llm_client=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
+    model = build_raising_then_scripted_model(
+        fail_times=2,
+        then_script=[{"action": "final_answer", "final_answer": "Recovered after 2 malformed attempts."}],
+    )
+    loop = AgentLoop(model=model, tools=tools, config=fast_config, runs_dir=runs_dir)
 
     result = loop.run("Trigger malformed LLM output then recover")
 
@@ -32,13 +31,6 @@ def test_malformed_response_then_recovery(tools, runs_dir, fast_config):
 
 
 def test_malformed_response_retries_exhausted_aborts_cleanly(tools, runs_dir):
-    script = [
-        {"action": "tool_call"},
-        {"action": "tool_call"},
-        {"action": "tool_call"},
-        {"action": "tool_call"},
-    ]
-    llm = ScriptedLLMClient(script)
     config = HarnessConfig(
         max_steps=5,
         max_wall_clock_seconds=10.0,
@@ -47,7 +39,13 @@ def test_malformed_response_retries_exhausted_aborts_cleanly(tools, runs_dir):
         tool_retry_backoff_seconds=0.0,
         max_llm_retries=1,
     )
-    loop = AgentLoop(llm_client=llm, tools=tools, config=config, runs_dir=runs_dir)
+    # Always raises: fail_times greater than any attempt budget the harness
+    # will ever spend before giving up.
+    model = build_raising_then_scripted_model(
+        fail_times=999,
+        then_script=[{"action": "final_answer", "final_answer": "never reached"}],
+    )
+    loop = AgentLoop(model=model, tools=tools, config=config, runs_dir=runs_dir)
 
     result = loop.run("Always return malformed decisions")
 

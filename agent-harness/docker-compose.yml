@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agent_harness
+      POSTGRES_PASSWORD: agent_harness
+      POSTGRES_DB: agent_harness
+    ports:
+      # Host port 5433 (not the default 5432) to avoid clashing with any
+      # other local Postgres instance.
+      - "5433:5432"
+    volumes:
+      - agent_harness_pg_data:/var/lib/postgresql/data
+      # `mlflow` (below) needs a separate `mlflow` database in this same
+      # Postgres instance. The official postgres image only runs scripts
+      # in this directory on a *first* container start against an empty
+      # data volume, so this is a no-op on subsequent starts.
+      - ./docker/postgres-initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_harness -d agent_harness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.16.1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Reuses the same Postgres container as the app's own `agent_harness`
+      # database, but in a separate `mlflow` database (created by
+      # `docker/postgres-initdb/01-create-mlflow-db.sql` on first Postgres
+      # start) — no second database server needed for a local dev setup.
+      MLFLOW_BACKEND_STORE_URI: postgresql://agent_harness:agent_harness@postgres:5432/mlflow
+      MLFLOW_ARTIFACT_ROOT: /mlartifacts
+    ports:
+      - "5001:5000"
+    volumes:
+      - agent_harness_mlflow_artifacts:/mlartifacts
+    # The official mlflow image doesn't bundle a Postgres driver by default
+    # (verified: `ModuleNotFoundError: No module named 'psycopg2'` against a
+    # fresh container without this) — install it once per container start
+    # before launching the server.
+    entrypoint: >
+      sh -c "pip install --quiet psycopg2-binary &&
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri postgresql://agent_harness:agent_harness@postgres:5432/mlflow
+      --default-artifact-root /mlartifacts"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  agent_harness_pg_data:
+  agent_harness_mlflow_artifacts:

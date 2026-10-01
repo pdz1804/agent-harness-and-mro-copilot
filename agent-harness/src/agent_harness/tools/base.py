@@ -10,7 +10,7 @@ external-system failures.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Generic, Optional, TypeVar
 
 from pydantic import BaseModel
 
@@ -26,6 +26,9 @@ class Tool(ABC, Generic[InputT, OutputT]):
     input_model: ClassVar[type[BaseModel]]
     output_model: ClassVar[type[BaseModel]]
     requires_approval: ClassVar[bool] = False
+    # RBAC action (see `agent_harness.rbac.Action`) the run's owner must hold
+    # for this tool to be offered to the LLM at all; `None` = any role.
+    required_action: ClassVar[Optional[str]] = None
 
     def bind_context(self, **context: Any) -> None:
         """Optional per-run context hook, called by `AgentLoop` right before
@@ -33,6 +36,17 @@ class Tool(ABC, Generic[InputT, OutputT]):
         can scope its idempotency guard to the current run). No-op by
         default — tools that don't need it (and any test double defining
         `run()` without a matching `bind_context`) are unaffected."""
+        return None
+
+    def precheck(self, args: InputT) -> Optional[dict[str, Any]]:
+        """Optional dry-run hook, called by `AgentLoop` after schema
+        validation and BEFORE the approval gate. Return a JSON-able
+        `preview` dict to show the approver what is about to happen (it is
+        attached to the `approval_requested` event), or raise
+        `ToolPrecheckError` to reject the call outright — the message goes
+        back to the LLM as the tool failure so it can correct itself,
+        and the human is never asked to approve something that cannot work.
+        No side effects allowed here. Default: no preview."""
         return None
 
     @abstractmethod

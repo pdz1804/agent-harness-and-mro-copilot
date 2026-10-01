@@ -4,8 +4,9 @@ or crashes mid-execution."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from agent_harness.schemas import AgentEvent
 
@@ -48,3 +49,16 @@ class TraceLogger:
     @property
     def history(self) -> list[AgentEvent]:
         return list(self._history)
+
+    def emit_live(self, event: AgentEvent) -> None:
+        """Forward a live-only event (e.g. `llm_token_delta`) to the
+        observer without persisting it to disk or `history`. Deltas are a
+        live overlay for the UI only — the assembled `llm_decision`/
+        `final_answer` event, logged via `log()` afterward, stays the sole
+        source of truth in the JSONL trace and DB (see llm_client.py
+        module docstring)."""
+        if self._on_event is not None:
+            try:
+                self._on_event(event)
+            except Exception:  # noqa: BLE001 - an observer bug must never break the run
+                pass

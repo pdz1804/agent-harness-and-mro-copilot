@@ -6,11 +6,15 @@ __pycache__/
 runs/*.jsonl
 !runs/.gitkeep
 .env
-data/harness.db
-data/harness.db-journal
-data/harness.db-wal
-data/harness.db-shm
 # Regenerated on first hybrid-retrieval run (sha256(chunk text) -> embedding
 # vector) — see agent_harness.dense_embeddings. Not source, safe to rebuild.
 data/kb_cache/
 *.log
+# Local ad-hoc MLflow file/sqlite stores if ever used instead of the
+# docker-compose `mlflow` service (whose own state lives in Docker-managed
+# volumes, not the repo). `src/agent_harness/eval/transcripts/` is
+# intentionally NOT excluded — those are checked-in real evidence for
+# `eval/run_eval.py`.
+mlruns/
+mlartifacts/
+mlflow.db

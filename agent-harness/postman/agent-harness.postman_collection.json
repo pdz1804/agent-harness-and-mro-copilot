@@ -1,13 +1,38 @@
 {
   "info": {
     "name": "Agent Harness API",
-    "description": "Requests against the Agent Harness FastAPI wrapper (`uvicorn api:app --reload`). Uses the {{baseUrl}} collection variable, default http://127.0.0.1:8000.",
+    "description": "Requests against the Agent Harness FastAPI wrapper (`uvicorn api:app --reload`). Uses the {{baseUrl}} collection variable, default http://127.0.0.1:8000.\n\n`POST /run` is the synchronous convenience endpoint: it pre-authorises approval-gated tools with `auto_approve` BEFORE the run starts. The real approval gate is the folder 'Real approval flow': POST /runs, poll GET /runs/{id} until `pending_approval`, then POST /runs/{id}/approve.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
       "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "u_admin",
+      "type": "string"
+    },
+    {
+      "key": "runId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sessionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "incidentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pollTries",
+      "value": "",
       "type": "string"
     }
   ],
@@ -16,11 +41,21 @@
       "name": "Health check",
       "request": {
         "method": "GET",
-        "header": [],
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
+        ],
         "url": {
           "raw": "{{baseUrl}}/health",
-          "host": ["{{baseUrl}}"],
-          "path": ["health"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
         }
       },
       "response": []
@@ -30,16 +65,30 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
         ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"objective\": \"What is the status of auth-service?\",\n  \"max_steps\": 5\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/run",
-          "host": ["{{baseUrl}}"],
-          "path": ["run"]
+          "raw": "{{baseUrl}}/api/v1/run",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "run"
+          ]
         },
         "description": "Runs the harness with an objective that never triggers an approval-gated tool. Expect status=\"completed\" with a search_knowledge_base or get_service_status call and a final_answer."
       },
@@ -50,16 +99,30 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
         ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"objective\": \"search-index is down, please create an incident\",\n  \"max_steps\": 6\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/run",
-          "host": ["{{baseUrl}}"],
-          "path": ["run"]
+          "raw": "{{baseUrl}}/api/v1/run",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "run"
+          ]
         },
         "description": "auto_approve defaults to false, so the create_incident call is denied. Expect an \"approval_denied\" event in history and no tool_call_result for create_incident."
       },
@@ -70,16 +133,30 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
         ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"objective\": \"search-index is down, please create an incident\",\n  \"auto_approve\": true,\n  \"max_steps\": 6\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/run",
-          "host": ["{{baseUrl}}"],
-          "path": ["run"]
+          "raw": "{{baseUrl}}/api/v1/run",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "run"
+          ]
         },
         "description": "auto_approve=true pre-authorizes the approval-gated create_incident call for this run. Expect \"approval_granted\" and a tool_call_result with status=\"created\"."
       },
@@ -90,20 +167,598 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
         ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"objective\": \"   \"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/run",
-          "host": ["{{baseUrl}}"],
-          "path": ["run"]
+          "raw": "{{baseUrl}}/api/v1/run",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "run"
+          ]
         },
         "description": "Expect HTTP 422; objective must be non-blank."
       },
       "response": []
+    },
+    {
+      "name": "Real approval flow (POST /runs -> poll -> POST /runs/{id}/approve)",
+      "description": "The real pause/resume gate the web UI uses, in contrast to POST /run's request-level `auto_approve`. Run the folder top to bottom: start a run, poll until it is paused on create_incident, approve it, poll until completed, then check the incident it created. The second sub-sequence starts another run and DENIES the approval; no incident is created. Needs a real OPENAI_API_KEY on the server (the LLM is not mocked).",
+      "item": [
+        {
+          "name": "1. Start run (202, returns immediately)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "runs"
+              ]
+            },
+            "description": "Starts the agent loop on a background thread and returns at once with a run id.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"search-index is down. Open a high severity incident titled 'search-index down' for service search-index.\",\n  \"max_steps\": 8\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('runId', body.run_id);",
+                  "pm.collectionVariables.set('sessionId', body.session_id);",
+                  "pm.collectionVariables.set('pollTries', 0);",
+                  "pm.test('run id returned', () => pm.expect(body.run_id).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Poll until pending_approval",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/runs/{{runId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "runs",
+                "{{runId}}"
+              ]
+            },
+            "description": "The run pauses (status `pending_approval`) at the approval-gated create_incident call and reports the tool and args waiting for a decision."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Give the background run a moment between polls (Postman has no sleep).",
+                  "const until = Date.now() + 1500;",
+                  "while (Date.now() < until) { /* wait */ }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('pollTries') || 0) + 1;",
+                  "pm.collectionVariables.set('pollTries', tries);",
+                  "const target = 'pending_approval';",
+                  "if (body.status !== target && tries < 40 && ['running', 'pending_approval'].includes(body.status)) {",
+                  "  postman.setNextRequest(pm.info.requestName); // poll again",
+                  "} else {",
+                  "  pm.collectionVariables.set('pollTries', 0);",
+                  "  pm.test('run is paused waiting for approval', () => pm.expect(body.status).to.eql(target));",
+                  "}",
+                  "if (body.status === 'pending_approval') {",
+                  "  pm.test('the pending tool is create_incident', () => pm.expect(body.pending_approval.tool_name).to.eql('create_incident'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Who is waiting? (header badge feed)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/approvals/pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "approvals",
+                "pending"
+              ]
+            },
+            "description": "Runs currently paused on a human decision that this user may resolve."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const waiting = pm.response.json();",
+                  "pm.test('the paused run is listed', () => pm.expect(waiting.map(w => w.run_id)).to.include(pm.collectionVariables.get('runId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/runs/{{runId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "runs",
+                "{{runId}}",
+                "approve"
+              ]
+            },
+            "description": "Resolves the pending approval; the background thread resumes and executes the tool.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approved\": true\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('approval accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Poll until completed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/runs/{{runId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "runs",
+                "{{runId}}"
+              ]
+            },
+            "description": "After approval the incident is created and the run finishes with a final answer."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Give the background run a moment between polls (Postman has no sleep).",
+                  "const until = Date.now() + 1500;",
+                  "while (Date.now() < until) { /* wait */ }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('pollTries') || 0) + 1;",
+                  "pm.collectionVariables.set('pollTries', tries);",
+                  "const target = 'completed';",
+                  "if (body.status !== target && tries < 40 && ['running', 'pending_approval'].includes(body.status)) {",
+                  "  postman.setNextRequest(pm.info.requestName); // poll again",
+                  "} else {",
+                  "  pm.collectionVariables.set('pollTries', 0);",
+                  "  pm.test('run completed after approval', () => pm.expect(body.status).to.eql(target));",
+                  "}",
+                  "if (body.status === 'completed') {",
+                  "  const results = body.history.filter(e => e.event_type === 'tool_call_result' && e.data.tool_name === 'create_incident');",
+                  "  pm.test('create_incident really ran', () => pm.expect(results.length).to.be.above(0));",
+                  "  if (results.length) pm.collectionVariables.set('incidentId', results[0].data.output.incident_id);",
+                  "  pm.test('approval is in the trace', () => pm.expect(body.history.map(e => e.event_type)).to.include('approval_granted'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. The incident exists and is open",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/incidents/{{incidentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "incidents",
+                "{{incidentId}}"
+              ]
+            },
+            "description": "Incident lifecycle starts at `open`; the detail view links back to this run."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const incident = pm.response.json();",
+                  "pm.test('status is open', () => pm.expect(incident.status).to.eql('open'));",
+                  "pm.test('linked to the run', () => pm.expect(incident.run.run_id).to.eql(pm.collectionVariables.get('runId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Acknowledge the incident",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/incidents/{{incidentId}}/acknowledge",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "incidents",
+                "{{incidentId}}",
+                "acknowledge"
+              ]
+            },
+            "description": "open -> acknowledged, recording who and when."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.eql('acknowledged'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. Resolve the incident",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/incidents/{{incidentId}}/resolve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "incidents",
+                "{{incidentId}}",
+                "resolve"
+              ]
+            },
+            "description": "acknowledged -> resolved.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Re-ran the index rebuild.\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('resolved', () => pm.expect(pm.response.json().status).to.eql('resolved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. Denial path: start another run",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "runs"
+              ]
+            },
+            "description": "Same flow, but the human will say no.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"search-index is still failing. Open a critical incident titled 'search-index outage 2' for service search-index.\",\n  \"max_steps\": 8\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('runId', pm.response.json().run_id);",
+                  "pm.collectionVariables.set('pollTries', 0);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Poll until pending_approval (denial run)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/runs/{{runId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "runs",
+                "{{runId}}"
+              ]
+            },
+            "description": "Wait for the pause. (If the agent reports the incident is already open and never asks, the run completes without a pause; that is the duplicate warning working.)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Give the background run a moment between polls (Postman has no sleep).",
+                  "const until = Date.now() + 1500;",
+                  "while (Date.now() < until) { /* wait */ }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('pollTries') || 0) + 1;",
+                  "pm.collectionVariables.set('pollTries', tries);",
+                  "if (body.status === 'running' && tries < 40) { postman.setNextRequest(pm.info.requestName); }",
+                  "else { pm.collectionVariables.set('pollTries', 0); pm.test('paused or finished', () => pm.expect(['pending_approval', 'completed']).to.include(body.status)); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. Deny",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Id",
+                "value": "{{userId}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/runs/{{runId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "runs",
+                "{{runId}}",
+                "approve"
+              ]
+            },
+            "description": "Denies the pending tool call. 409 means the run never paused (see the previous request).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approved\": false\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('decision recorded or nothing pending', () => pm.expect([200, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

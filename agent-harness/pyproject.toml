@@ -12,16 +12,26 @@ dependencies = [
     "fastapi>=0.100",
     "uvicorn>=0.23",
     "openai>=1.40",
+    "pydantic-ai==2.51.0",
     "rank-bm25>=0.2.2",
     "python-dotenv>=1.0",
     "numpy>=1.24",
     "sentence-transformers>=2.7",
+    "psycopg[binary]>=3.1",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "mlflow>=3.16,<4.0",
+    "tiktoken>=0.7",
+    "sqlglot>=25",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4",
     "httpx>=0.24",
+    "testcontainers[postgres]>=4.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
 ]
 
 [tool.setuptools.packages.find]
@@ -32,4 +42,32 @@ testpaths = ["tests"]
 addopts = "-ra -m \"not live\""
 markers = [
     "live: opt-in test that makes a real OpenAI API call (requires OPENAI_API_KEY; run with `pytest -m live`, skipped otherwise).",
+    "e2e: end-to-end HTTP smoke test driving the real FastAPI app through a full user journey. Runs by default with TestModel (network-free); pass --live to exercise the real OpenAI API instead (requires OPENAI_API_KEY).",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["web", "data", "runs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",  # line length is a formatter concern; long docstring lines are deliberate
+    "B008",  # FastAPI's `Depends(...)` in a default argument is the framework idiom
+    "UP045",  # `Optional[X]` is used consistently across the codebase
+    "UP007",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic revisions keep the generator's header/import layout.
+"alembic/versions/*" = ["I001", "UP", "W291"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/agent_harness", "api.py", "cli.py"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = false

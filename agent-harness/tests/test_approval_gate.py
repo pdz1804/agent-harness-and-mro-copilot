@@ -4,7 +4,7 @@ approve signal from the injected callback. Covers both approve and deny."""
 from __future__ import annotations
 
 from agent_harness.approval import always_approve, always_deny
-from agent_harness.llm_client import ScriptedLLMClient
+from agent_harness.llm_client import build_scripted_model
 from agent_harness.loop import AgentLoop
 
 _INCIDENT_SCRIPT = [
@@ -22,9 +22,9 @@ _INCIDENT_SCRIPT = [
 
 
 def test_approval_granted_executes_create_incident(tools, runs_dir, fast_config):
-    llm = ScriptedLLMClient(list(_INCIDENT_SCRIPT))
+    llm = build_scripted_model(list(_INCIDENT_SCRIPT))
     loop = AgentLoop(
-        llm_client=llm, tools=tools, config=fast_config, approval_callback=always_approve, runs_dir=runs_dir
+        model=llm, tools=tools, config=fast_config, approval_callback=always_approve, runs_dir=runs_dir
     )
 
     result = loop.run("search-index is down, please create an incident")
@@ -43,9 +43,9 @@ def test_approval_granted_executes_create_incident(tools, runs_dir, fast_config)
 
 
 def test_approval_denied_blocks_create_incident_execution(tools, runs_dir, fast_config):
-    llm = ScriptedLLMClient(list(_INCIDENT_SCRIPT))
+    llm = build_scripted_model(list(_INCIDENT_SCRIPT))
     loop = AgentLoop(
-        llm_client=llm, tools=tools, config=fast_config, approval_callback=always_deny, runs_dir=runs_dir
+        model=llm, tools=tools, config=fast_config, approval_callback=always_deny, runs_dir=runs_dir
     )
 
     result = loop.run("search-index is down, please create an incident")
@@ -69,9 +69,9 @@ def test_approval_callback_receives_validated_tool_args(tools, runs_dir, fast_co
         seen.append((tool_name, tool_args))
         return True
 
-    llm = ScriptedLLMClient(list(_INCIDENT_SCRIPT))
+    llm = build_scripted_model(list(_INCIDENT_SCRIPT))
     loop = AgentLoop(
-        llm_client=llm, tools=tools, config=fast_config, approval_callback=recording_callback, runs_dir=runs_dir
+        model=llm, tools=tools, config=fast_config, approval_callback=recording_callback, runs_dir=runs_dir
     )
     loop.run("search-index is down, please create an incident")
 

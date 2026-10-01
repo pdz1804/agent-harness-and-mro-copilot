@@ -1,16 +1,17 @@
-"""`get_service_status` tool: reads a real SQLite-backed service registry
-(`data/harness.db`, seeded from `data/seed/services.json`). Unknown service
+"""`get_service_status` tool: reads a real Postgres-backed service registry
+(seeded from `data/seed/services.json`). Unknown service
 names raise `ToolExecutionError`, the harness's built-in "tool-failure
 path" scenario."""
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from agent_harness import db
 from agent_harness.exceptions import ToolExecutionError
+from agent_harness.repos import incidents as incidents_repo
 from agent_harness.tools.base import Tool
 
 ServiceStatus = Literal["operational", "degraded", "down"]
@@ -18,6 +19,13 @@ ServiceStatus = Literal["operational", "degraded", "down"]
 
 class GetServiceStatusInput(BaseModel):
     service_name: str = Field(min_length=1, description="Registered service identifier.")
+
+
+class OpenIncidentRef(BaseModel):
+    id: str
+    title: str
+    severity: str
+    status: str
 
 
 class GetServiceStatusOutput(BaseModel):
@@ -33,6 +41,11 @@ class GetServiceStatusOutput(BaseModel):
     )
     owner: Optional[str] = None
     last_deploy: Optional[str] = None
+    open_incidents: list[OpenIncidentRef] = Field(
+        default_factory=list,
+        description="Incidents already open or acknowledged for this service. If one exists, report it "
+        "instead of opening a duplicate.",
+    )
 
 
 class GetServiceStatusTool(Tool[GetServiceStatusInput, GetServiceStatusOutput]):
@@ -45,6 +58,16 @@ class GetServiceStatusTool(Tool[GetServiceStatusInput, GetServiceStatusOutput]):
     input_model = GetServiceStatusInput
     output_model = GetServiceStatusOutput
     requires_approval = False
+
+    def __init__(self) -> None:
+        self._owner_id: Optional[str] = None
+        self._owner_role: Optional[str] = None
+
+    def bind_context(self, **context: Any) -> None:
+        if context.get("owner_id"):
+            self._owner_id = str(context["owner_id"])
+        if context.get("owner_role"):
+            self._owner_role = str(context["owner_role"])
 
     def run(self, args: GetServiceStatusInput) -> GetServiceStatusOutput:
         row = db.get_service(args.service_name)
@@ -65,4 +88,13 @@ class GetServiceStatusTool(Tool[GetServiceStatusInput, GetServiceStatusOutput]):
             error_rate_pct=raw_error_rate * 100 if raw_error_rate is not None else None,
             owner=row["owner"],
             last_deploy=row["last_deploy"],
+            open_incidents=self._open_incidents(row["name"]),
         )
+
+    def _open_incidents(self, service_name: str) -> list[OpenIncidentRef]:
+        scope = None if self._owner_role in (None, "admin") else self._owner_id
+        found = incidents_repo.find_open_for_service(service_name, owner_id=scope)
+        return [
+            OpenIncidentRef(id=i["id"], title=i["title"], severity=i["severity"], status=i["status"])
+            for i in found[:5]
+        ]

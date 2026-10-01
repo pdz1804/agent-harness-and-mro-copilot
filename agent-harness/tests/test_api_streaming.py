@@ -17,8 +17,8 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import api  # noqa: E402
-from agent_harness.llm_client import HeuristicMockLLMClient  # noqa: E402
+from agent_harness import state  # noqa: E402
+from agent_harness.llm_client import build_routing_model, build_streaming_final_answer_model  # noqa: E402
 from api import app  # noqa: E402
 
 client = TestClient(app)
@@ -34,14 +34,18 @@ def _isolate_trace_files(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _use_heuristic_llm(monkeypatch):
-    monkeypatch.setattr(api, "_llm_client_factory", lambda: HeuristicMockLLMClient())
+    monkeypatch.setattr(
+        state,
+        "llm_client_factory",
+        lambda: build_routing_model(),
+    )
 
 
 def _wait_for_status(run_id: str, *targets: str) -> dict:
     deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
     body: dict = {}
     while time.monotonic() < deadline:
-        response = client.get(f"/runs/{run_id}")
+        response = client.get(f"/api/v1/runs/{run_id}")
         assert response.status_code == 200
         body = response.json()
         if body["status"] in targets:
@@ -67,16 +71,16 @@ def test_sse_stream_for_completed_run_replays_persisted_snapshot():
     process's registry -- simulated here by waiting for completion before
     subscribing) gets one run_snapshot event with full history, then closes."""
     start = client.post(
-        "/runs", json={"objective": "What is the status of auth-service?", "max_steps": 5}
+        "/api/v1/runs", json={"objective": "What is the status of auth-service?", "max_steps": 5}
     )
     run_id = start.json()["run_id"]
     _wait_for_status(run_id, "completed")
 
     # Drop it from the live in-memory registry to force the persisted-only
     # path, exactly as would happen after a process restart.
-    api._registry._runs.pop(run_id, None)
+    state.registry._runs.pop(run_id, None)
 
-    with client.stream("GET", f"/runs/{run_id}/events") as response:
+    with client.stream("GET", f"/api/v1/runs/{run_id}/events") as response:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
         raw = "".join(response.iter_text())
@@ -88,11 +92,11 @@ def test_sse_stream_for_completed_run_replays_persisted_snapshot():
 
 def test_sse_stream_for_live_run_emits_events_in_order_and_closes():
     start = client.post(
-        "/runs", json={"objective": "What is the status of payments-api?", "max_steps": 5}
+        "/api/v1/runs", json={"objective": "What is the status of payments-api?", "max_steps": 5}
     )
     run_id = start.json()["run_id"]
 
-    with client.stream("GET", f"/runs/{run_id}/events") as response:
+    with client.stream("GET", f"/api/v1/runs/{run_id}/events") as response:
         assert response.status_code == 200
         raw = "".join(response.iter_text())
 
@@ -103,7 +107,7 @@ def test_sse_stream_for_live_run_emits_events_in_order_and_closes():
     # Every AgentEvent (all but the final stream_end) carries a "step" field;
     # steps must be non-decreasing (never reordered) across the stream.
     steps = []
-    for event_type, data in events[:-1]:
+    for _event_type, data in events[:-1]:
         import json as _json
 
         steps.append(_json.loads(data)["step"])
@@ -112,19 +116,64 @@ def test_sse_stream_for_live_run_emits_events_in_order_and_closes():
     _wait_for_status(run_id, "completed")
 
 
+def test_sse_stream_emits_llm_token_delta_events_that_assemble_to_final_answer(monkeypatch):
+    """Real token-by-token streaming over the SSE path: a `FunctionModel`
+    with a `stream_function` (see `build_streaming_final_answer_model`)
+    emits genuine `llm_token_delta` events (field="final_answer") the same
+    way a real streaming OpenAI response would (see the phase-11b spike
+    report's part C for the live OpenAI capture of this exact mechanism).
+    Assert they arrive in order and, once concatenated, equal the
+    persisted `final_answer` event's text exactly — proving the delta
+    overlay and the assembled/persisted event agree."""
+    monkeypatch.setattr(
+        state,
+        "llm_client_factory",
+        lambda: build_streaming_final_answer_model("auth-service is operational."),
+    )
+    start = client.post(
+        "/api/v1/runs", json={"objective": "What is the status of auth-service?", "max_steps": 5}
+    )
+    run_id = start.json()["run_id"]
+
+    with client.stream("GET", f"/api/v1/runs/{run_id}/events") as response:
+        assert response.status_code == 200
+        raw = "".join(response.iter_text())
+
+    events = _parse_sse(raw)
+    import json as _json
+
+    delta_events = [_json.loads(data) for etype, data in events if etype == "llm_token_delta"]
+    assert delta_events, "expected at least one llm_token_delta event"
+    assert all(e["data"]["field"] in ("final_answer", "tool_args") for e in delta_events)
+
+    final_answer_deltas = [e for e in delta_events if e["data"]["field"] == "final_answer"]
+    assembled_from_deltas = "".join(e["data"]["delta"] for e in final_answer_deltas)
+
+    final_answer_events = [_json.loads(data) for etype, data in events if etype == "final_answer"]
+    assert len(final_answer_events) == 1
+    assert assembled_from_deltas == final_answer_events[0]["data"]["final_answer"]
+
+    # Deltas must never be persisted to record.history / the snapshot -
+    # only the assembled llm_decision/final_answer events are the source of
+    # truth (see loop.py::_decide and run_registry.py::_on_event).
+    _wait_for_status(run_id, "completed")
+    snapshot = client.get(f"/api/v1/runs/{run_id}").json()
+    assert all(e["event_type"] != "llm_token_delta" for e in snapshot["history"])
+
+
 def test_sse_stream_unknown_run_returns_404():
-    response = client.get("/runs/does-not-exist/events")
+    response = client.get("/api/v1/runs/does-not-exist/events")
     assert response.status_code == 404
 
 
 def test_export_run_returns_full_trace():
     start = client.post(
-        "/runs", json={"objective": "What is the status of auth-service?", "max_steps": 5}
+        "/api/v1/runs", json={"objective": "What is the status of auth-service?", "max_steps": 5}
     )
     run_id = start.json()["run_id"]
     _wait_for_status(run_id, "completed")
 
-    response = client.get(f"/runs/{run_id}/export")
+    response = client.get(f"/api/v1/runs/{run_id}/export")
     assert response.status_code == 200
     body = response.json()
     assert body["run_id"] == run_id
@@ -134,5 +183,5 @@ def test_export_run_returns_full_trace():
 
 
 def test_export_unknown_run_returns_404():
-    response = client.get("/runs/does-not-exist/export")
+    response = client.get("/api/v1/runs/does-not-exist/export")
     assert response.status_code == 404

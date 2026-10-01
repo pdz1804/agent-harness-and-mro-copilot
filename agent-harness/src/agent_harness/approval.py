@@ -7,7 +7,7 @@ matching the signature, e.g. a fixed decision or a queue-driven fake.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 
 class ApprovalCallback(Protocol):
@@ -38,7 +38,7 @@ def always_deny(tool_name: str, tool_args: dict[str, Any]) -> bool:
     return False
 
 
-def fixed_decision_approval(decision: bool) -> Callable[[str, dict[str, Any]], bool]:
+def fixed_decision_approval(decision: bool) -> ApprovalCallback:
     """Build a callback that always returns `decision` (used by the API layer
     to turn a single request-level `auto_approve` flag into a callback)."""
 

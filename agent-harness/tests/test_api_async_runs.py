@@ -18,8 +18,8 @@ from fastapi.testclient import TestClient
 # api.py lives at the project root (sibling of tests/), not under src/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import api  # noqa: E402
-from agent_harness.llm_client import HeuristicMockLLMClient  # noqa: E402
+from agent_harness import state  # noqa: E402
+from agent_harness.llm_client import build_routing_model  # noqa: E402
 from api import app  # noqa: E402
 
 client = TestClient(app)
@@ -39,7 +39,7 @@ def _isolate_trace_files(tmp_path, monkeypatch):
 def _use_heuristic_llm(monkeypatch):
     """See test_api.py: inject the deterministic test double instead of the
     real OpenAI-requiring default factory."""
-    monkeypatch.setattr(api, "_llm_client_factory", lambda: HeuristicMockLLMClient())
+    monkeypatch.setattr(state, "llm_client_factory", lambda: build_routing_model())
 
 
 def _wait_for_status(run_id: str, *targets: str) -> dict:
@@ -47,7 +47,7 @@ def _wait_for_status(run_id: str, *targets: str) -> dict:
     deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
     body: dict = {}
     while time.monotonic() < deadline:
-        response = client.get(f"/runs/{run_id}")
+        response = client.get(f"/api/v1/runs/{run_id}")
         assert response.status_code == 200
         body = response.json()
         if body["status"] in targets:
@@ -58,7 +58,7 @@ def _wait_for_status(run_id: str, *targets: str) -> dict:
 
 def test_start_run_returns_immediately_with_running_status():
     response = client.post(
-        "/runs",
+        "/api/v1/runs",
         json={"objective": "What is the status of auth-service?", "max_steps": 5},
     )
     assert response.status_code == 202
@@ -73,7 +73,7 @@ def test_start_run_returns_immediately_with_running_status():
 
 def test_pending_approval_snapshot_then_approve_reaches_completed():
     response = client.post(
-        "/runs",
+        "/api/v1/runs",
         json={"objective": "search-index is down, please create an incident", "max_steps": 6},
     )
     assert response.status_code == 202
@@ -85,7 +85,7 @@ def test_pending_approval_snapshot_then_approve_reaches_completed():
     assert "title" in pending_body["pending_approval"]["tool_args"]
     assert "severity" in pending_body["pending_approval"]["tool_args"]
 
-    approve_response = client.post(f"/runs/{run_id}/approve", json={"approved": True})
+    approve_response = client.post(f"/api/v1/runs/{run_id}/approve", json={"approved": True})
     assert approve_response.status_code == 200
 
     final_body = _wait_for_status(run_id, "completed")
@@ -103,7 +103,7 @@ def test_pending_approval_snapshot_then_approve_reaches_completed():
 
 def test_pending_approval_deny_unblocks_and_run_completes_denial_path():
     response = client.post(
-        "/runs",
+        "/api/v1/runs",
         json={"objective": "search-index is down, please create an incident", "max_steps": 6},
     )
     assert response.status_code == 202
@@ -112,7 +112,7 @@ def test_pending_approval_deny_unblocks_and_run_completes_denial_path():
     pending_body = _wait_for_status(run_id, "pending_approval")
     assert pending_body["pending_approval"]["tool_name"] == "create_incident"
 
-    deny_response = client.post(f"/runs/{run_id}/approve", json={"approved": False})
+    deny_response = client.post(f"/api/v1/runs/{run_id}/approve", json={"approved": False})
     assert deny_response.status_code == 200
 
     final_body = _wait_for_status(run_id, "completed")
@@ -128,40 +128,40 @@ def test_pending_approval_deny_unblocks_and_run_completes_denial_path():
 
 
 def test_approve_unknown_run_id_returns_404():
-    response = client.post("/runs/does-not-exist/approve", json={"approved": True})
+    response = client.post("/api/v1/runs/does-not-exist/approve", json={"approved": True})
     assert response.status_code == 404
 
 
 def test_approve_with_no_pending_approval_returns_409():
     response = client.post(
-        "/runs",
+        "/api/v1/runs",
         json={"objective": "What is the status of auth-service?", "max_steps": 5},
     )
     run_id = response.json()["run_id"]
     _wait_for_status(run_id, "completed")
 
-    conflict_response = client.post(f"/runs/{run_id}/approve", json={"approved": True})
+    conflict_response = client.post(f"/api/v1/runs/{run_id}/approve", json={"approved": True})
     assert conflict_response.status_code == 409
 
 
 def test_get_unknown_run_id_returns_404():
-    response = client.get("/runs/does-not-exist")
+    response = client.get("/api/v1/runs/does-not-exist")
     assert response.status_code == 404
 
 
 def test_start_run_rejects_blank_objective():
-    response = client.post("/runs", json={"objective": "   "})
+    response = client.post("/api/v1/runs", json={"objective": "   "})
     assert response.status_code == 422
 
 
 def test_list_runs_includes_started_run():
     response = client.post(
-        "/runs",
+        "/api/v1/runs",
         json={"objective": "What is the status of payments-api?", "max_steps": 5},
     )
     run_id = response.json()["run_id"]
 
-    list_response = client.get("/runs")
+    list_response = client.get("/api/v1/runs")
     assert list_response.status_code == 200
     run_ids = [r["run_id"] for r in list_response.json()]
     assert run_id in run_ids

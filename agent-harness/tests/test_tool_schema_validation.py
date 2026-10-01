@@ -4,7 +4,7 @@ generic try/except around tool.run()."""
 
 from __future__ import annotations
 
-from agent_harness.llm_client import ScriptedLLMClient
+from agent_harness.llm_client import build_scripted_model
 from agent_harness.loop import AgentLoop
 
 
@@ -18,8 +18,8 @@ def test_invalid_tool_args_are_rejected_before_execution(tools, runs_dir, fast_c
         },
         {"action": "final_answer", "final_answer": "Could not create incident: invalid args."},
     ]
-    llm = ScriptedLLMClient(script)
-    loop = AgentLoop(llm_client=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
+    llm = build_scripted_model(script)
+    loop = AgentLoop(model=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
 
     result = loop.run("Create an incident with bad args")
 
@@ -37,8 +37,8 @@ def test_unknown_tool_name_is_recorded_and_does_not_crash(tools, runs_dir, fast_
         {"action": "tool_call", "tool_name": "delete_production_database", "tool_args": {}},
         {"action": "final_answer", "final_answer": "That tool does not exist."},
     ]
-    llm = ScriptedLLMClient(script)
-    loop = AgentLoop(llm_client=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
+    llm = build_scripted_model(script)
+    loop = AgentLoop(model=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
 
     result = loop.run("Try to call a nonexistent tool")
 

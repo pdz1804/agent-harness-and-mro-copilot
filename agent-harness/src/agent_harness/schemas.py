@@ -21,6 +21,8 @@ RunStatus = Literal[
     "step_limit_exceeded",
     "time_limit_exceeded",
     "llm_error_exceeded",
+    "guardrail_blocked",
+    "cancelled",
 ]
 
 EventType = Literal[
@@ -37,9 +39,20 @@ EventType = Literal[
     "approval_requested",
     "approval_granted",
     "approval_denied",
+    "approval_timed_out",
     "final_answer",
     "step_limit_exceeded",
     "time_limit_exceeded",
+    "llm_token_delta",
+    "context_compacted",
+    "guardrail_blocked",
+    "guardrail_severity_downgraded",
+    "skill_invoked",
+    "skills_assigned",
+    "skill_routed",
+    "skill_routing_failed",
+    "no_tools_available",
+    "run_cancelled",
 ]
 
 
@@ -57,7 +70,7 @@ class LLMDecision(BaseModel):
     rationale: Optional[str] = None
 
     @model_validator(mode="after")
-    def _check_shape(self) -> "LLMDecision":
+    def _check_shape(self) -> LLMDecision:
         if self.action == "tool_call":
             if not self.tool_name:
                 raise ValueError("tool_call decisions require a non-empty tool_name")

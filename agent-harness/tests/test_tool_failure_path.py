@@ -8,7 +8,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from agent_harness.exceptions import ToolExecutionError
-from agent_harness.llm_client import ScriptedLLMClient
+from agent_harness.llm_client import build_scripted_model
 from agent_harness.loop import AgentLoop
 from agent_harness.tools.base import Tool
 
@@ -24,8 +24,8 @@ def test_permanent_tool_failure_exhausts_retries_and_is_recorded(tools, runs_dir
         },
         {"action": "final_answer", "final_answer": "Could not determine status; escalate manually."},
     ]
-    llm = ScriptedLLMClient(script)
-    loop = AgentLoop(llm_client=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
+    llm = build_scripted_model(script)
+    loop = AgentLoop(model=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
 
     result = loop.run("Check status of does-not-exist service")
 
@@ -78,8 +78,8 @@ def test_transient_tool_failure_recovers_on_retry(runs_dir, fast_config):
         {"action": "tool_call", "tool_name": "flaky_tool", "tool_args": {"value": "x"}},
         {"action": "final_answer", "final_answer": "Recovered after retry."},
     ]
-    llm = ScriptedLLMClient(script)
-    loop = AgentLoop(llm_client=llm, tools=registry, config=fast_config, runs_dir=runs_dir)
+    llm = build_scripted_model(script)
+    loop = AgentLoop(model=llm, tools=registry, config=fast_config, runs_dir=runs_dir)
 
     result = loop.run("Exercise the flaky tool")
 
@@ -127,8 +127,8 @@ def test_tool_timeout_is_recorded_and_retried(runs_dir):
         {"action": "tool_call", "tool_name": "slow_tool", "tool_args": {}},
         {"action": "final_answer", "final_answer": "Gave up waiting on slow_tool."},
     ]
-    llm = ScriptedLLMClient(script)
-    loop = AgentLoop(llm_client=llm, tools={"slow_tool": _SlowTool()}, config=config, runs_dir=runs_dir)
+    llm = build_scripted_model(script)
+    loop = AgentLoop(model=llm, tools={"slow_tool": _SlowTool()}, config=config, runs_dir=runs_dir)
 
     result = loop.run("Call the slow tool")
 

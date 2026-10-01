@@ -159,13 +159,13 @@ def embed_texts(texts: list[str]) -> np.ndarray:
         return np.zeros((0, 0), dtype=np.float32)
     cache = _load_cache()
     hashes = [_content_hash(t) for t in texts]
-    missing = [(i, t) for i, (t, h) in enumerate(zip(texts, hashes)) if h not in cache]
+    missing = [(i, t) for i, (t, h) in enumerate(zip(texts, hashes, strict=True)) if h not in cache]
     if missing:
         model = _get_model()
         vectors = model.encode(
             [t for _, t in missing], normalize_embeddings=True, show_progress_bar=False
         )
-        for (i, _), vec in zip(missing, vectors):
+        for (i, _), vec in zip(missing, vectors, strict=True):
             cache[hashes[i]] = np.asarray(vec, dtype=np.float32).tolist()
         _save_cache(cache)
     return np.array([cache[h] for h in hashes], dtype=np.float32)

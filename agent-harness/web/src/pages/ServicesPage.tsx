@@ -2,13 +2,15 @@ import { ArrowClockwise, Pulse } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Skeleton } from '../components/Skeleton'
+import { disabledReason, useLacksPermission, useMe } from '../hooks/useMe'
 import { ApiError, api } from '../lib/api'
 import type { Service, ServiceStatus } from '../lib/api-types'
+import { PageHeader } from '../components/ui/PageHeader'
 
 const STATUS_STYLES: Record<ServiceStatus, string> = {
-  operational: 'bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/30',
-  degraded: 'bg-amber-500/10 text-amber-300 ring-1 ring-inset ring-amber-500/30',
-  down: 'bg-rose-500/10 text-rose-300 ring-1 ring-inset ring-rose-500/30',
+  operational: 'bg-emerald-50 text-emerald-700',
+  degraded: 'bg-amber-50 text-amber-700',
+  down: 'bg-rose-50 text-rose-700',
 }
 
 const STATUS_OPTIONS: ServiceStatus[] = ['operational', 'degraded', 'down']
@@ -24,6 +26,8 @@ export function ServicesPage() {
   const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
+  const { me } = useMe()
+  const cannotMutate = useLacksPermission('mutate_services')
 
   useEffect(() => {
     let cancelled = false
@@ -55,24 +59,20 @@ export function ServicesPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-zinc-100">Services</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Mock service registry, persisted in SQLite. Flip a status to create a real scenario for the
-            agent to investigate on the New run page.
-          </p>
-        </div>
-        <button
+    <div className="mx-auto max-w-6xl">
+      <PageHeader
+        title="Services"
+        description={<>Mock service registry, persisted in PostgreSQL. Flip a status to create a real scenario for the
+            agent to investigate on the New run page.</>}
+        actions={<><button
           type="button"
           onClick={() => setRefreshToken((n) => n + 1)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 px-2.5 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200"
+          className="ui-btn ui-btn-secondary"
         >
           <ArrowClockwise size={14} weight="bold" />
           Refresh
-        </button>
-      </div>
+        </button></>}
+      />
 
       <div className="mt-4">
         {error && <ErrorBanner message={error} onRetry={() => setRefreshToken((n) => n + 1)} />}
@@ -84,13 +84,13 @@ export function ServicesPage() {
             ))}
           </div>
         ) : services && services.length > 0 ? (
-          <ul className="divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800">
+          <ul className="ui-list ui-card divide-y divide-zinc-200 overflow-hidden">
             {services.map((svc) => (
               <li key={svc.name} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Pulse size={14} className="text-zinc-600" />
-                    <span className="font-data text-sm text-zinc-100">{svc.name}</span>
+                    <Pulse size={14} className="text-zinc-500" />
+                    <span className="font-data text-sm text-zinc-900">{svc.name}</span>
                     <span
                       className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[svc.status]}`}
                     >
@@ -103,11 +103,12 @@ export function ServicesPage() {
                     checked {formatTimestamp(svc.last_checked)}
                   </p>
                 </div>
-                <select
+                <select name="select"
                   value={svc.status}
-                  disabled={updating === svc.name}
+                  disabled={updating === svc.name || cannotMutate}
+                  title={cannotMutate ? disabledReason(me, 'mutate_services') : undefined}
                   onChange={(e) => void handleStatusChange(svc.name, e.target.value as ServiceStatus)}
-                  className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none disabled:opacity-50"
+                  className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none disabled:opacity-50"
                 >
                   {STATUS_OPTIONS.map((opt) => (
                     <option key={opt} value={opt}>

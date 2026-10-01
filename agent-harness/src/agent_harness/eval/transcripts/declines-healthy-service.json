@@ -1,0 +1,106 @@
+{
+  "scenario_id": "declines-healthy-service",
+  "expected": {
+    "status": "completed",
+    "escalated": false,
+    "approval_denied": false
+  },
+  "run_result": {
+    "run_id": "08ad91f1a0bb",
+    "objective": "Check the status of auth-service and let me know if anything needs escalation.",
+    "status": "completed",
+    "final_answer": "The status of the auth-service is operational, with a latency of 48 ms and an error rate of 0.1%. There are no issues that warrant escalation at this time.",
+    "steps_taken": 2,
+    "elapsed_seconds": 2.7339999999967404,
+    "history": [
+      {
+        "run_id": "08ad91f1a0bb",
+        "step": 1,
+        "event_type": "llm_decision",
+        "timestamp": 1790695577.1752229,
+        "latency_ms": null,
+        "data": {
+          "action": "tool_call",
+          "tool_name": "get_service_status",
+          "tool_args": {
+            "service_name": "auth-service"
+          },
+          "rationale": null,
+          "llm_meta": {
+            "model": "gpt-4o-mini-2024-07-18",
+            "prompt_tokens": 459,
+            "completion_tokens": 17,
+            "total_tokens": 476
+          }
+        }
+      },
+      {
+        "run_id": "08ad91f1a0bb",
+        "step": 1,
+        "event_type": "tool_call_started",
+        "timestamp": 1790695577.179855,
+        "latency_ms": null,
+        "data": {
+          "tool_name": "get_service_status",
+          "args": {
+            "service_name": "auth-service"
+          },
+          "attempt": 1
+        }
+      },
+      {
+        "run_id": "08ad91f1a0bb",
+        "step": 1,
+        "event_type": "tool_call_result",
+        "timestamp": 1790695577.211654,
+        "latency_ms": 31.000000017229468,
+        "data": {
+          "tool_name": "get_service_status",
+          "args": {
+            "service_name": "auth-service"
+          },
+          "attempt": 1,
+          "output": {
+            "service_name": "auth-service",
+            "status": "operational",
+            "last_checked": "",
+            "latency_ms": 48.0,
+            "error_rate_pct": 0.1,
+            "owner": "platform-auth",
+            "last_deploy": "2026-09-18T09:12:00Z"
+          }
+        }
+      },
+      {
+        "run_id": "08ad91f1a0bb",
+        "step": 2,
+        "event_type": "llm_decision",
+        "timestamp": 1790695578.943088,
+        "latency_ms": null,
+        "data": {
+          "action": "final_answer",
+          "final_answer": "The status of the auth-service is operational, with a latency of 48 ms and an error rate of 0.1%. There are no issues that warrant escalation at this time.",
+          "rationale": null,
+          "llm_meta": {
+            "model": "gpt-4o-mini-2024-07-18",
+            "prompt_tokens": 539,
+            "completion_tokens": 38,
+            "total_tokens": 577
+          }
+        }
+      },
+      {
+        "run_id": "08ad91f1a0bb",
+        "step": 2,
+        "event_type": "final_answer",
+        "timestamp": 1790695578.947648,
+        "latency_ms": null,
+        "data": {
+          "final_answer": "The status of the auth-service is operational, with a latency of 48 ms and an error rate of 0.1%. There are no issues that warrant escalation at this time.",
+          "rationale": null
+        }
+      }
+    ],
+    "trace_path": "runs\\08ad91f1a0bb.jsonl"
+  }
+}

@@ -5,7 +5,7 @@ in history."""
 from __future__ import annotations
 
 from agent_harness.config import HarnessConfig
-from agent_harness.llm_client import ScriptedLLMClient
+from agent_harness.llm_client import build_scripted_model
 from agent_harness.loop import AgentLoop
 
 
@@ -18,7 +18,7 @@ def test_step_limit_exceeded_aborts_cleanly(tools, runs_dir):
             "tool_args": {"query": "status"},
         }
     ]
-    llm = ScriptedLLMClient(script)
+    llm = build_scripted_model(script)
     config = HarnessConfig(
         max_steps=3,
         max_wall_clock_seconds=30.0,
@@ -27,7 +27,7 @@ def test_step_limit_exceeded_aborts_cleanly(tools, runs_dir):
         tool_retry_backoff_seconds=0.0,
         max_llm_retries=0,
     )
-    loop = AgentLoop(llm_client=llm, tools=tools, config=config, runs_dir=runs_dir)
+    loop = AgentLoop(model=llm, tools=tools, config=config, runs_dir=runs_dir)
 
     result = loop.run("Never-ending investigation")
 
@@ -46,7 +46,7 @@ def test_time_limit_exceeded_aborts_cleanly(tools, runs_dir):
             "tool_args": {"query": "status"},
         }
     ]
-    llm = ScriptedLLMClient(script, think_time_seconds=0.05)
+    llm = build_scripted_model(script, think_time_seconds=0.05)
     config = HarnessConfig(
         max_steps=1000,
         max_wall_clock_seconds=0.08,
@@ -55,7 +55,7 @@ def test_time_limit_exceeded_aborts_cleanly(tools, runs_dir):
         tool_retry_backoff_seconds=0.0,
         max_llm_retries=0,
     )
-    loop = AgentLoop(llm_client=llm, tools=tools, config=config, runs_dir=runs_dir)
+    loop = AgentLoop(model=llm, tools=tools, config=config, runs_dir=runs_dir)
 
     result = loop.run("Slow-thinking investigation")
 

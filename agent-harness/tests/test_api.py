@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 # api.py lives at the project root (sibling of tests/), not under src/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import api  # noqa: E402
-from agent_harness.llm_client import HeuristicMockLLMClient  # noqa: E402
+from agent_harness import state  # noqa: E402
+from agent_harness.llm_client import build_test_model  # noqa: E402
 from api import app  # noqa: E402
 
 
@@ -33,14 +33,14 @@ def _use_heuristic_llm(monkeypatch):
     api._default_llm_client). Tests inject the deterministic
     HeuristicMockLLMClient instead, exactly as the phase-06 spec requires:
     'HeuristicMockLLMClient stays ONLY as a deterministic test double for CI'."""
-    monkeypatch.setattr(api, "_llm_client_factory", lambda: HeuristicMockLLMClient())
+    monkeypatch.setattr(state, "llm_client_factory", lambda: build_test_model())
 
 
 client = TestClient(app)
 
 
 def test_health_endpoint():
-    response = client.get("/health")
+    response = client.get("/api/v1/health")
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
@@ -49,7 +49,7 @@ def test_health_endpoint():
 
 def test_run_endpoint_happy_path():
     response = client.post(
-        "/run",
+        "/api/v1/run",
         json={"objective": "What is the status of auth-service?", "max_steps": 5},
     )
     assert response.status_code == 200
@@ -62,7 +62,7 @@ def test_run_endpoint_happy_path():
 
 def test_run_endpoint_approval_required_case_denied_by_default():
     response = client.post(
-        "/run",
+        "/api/v1/run",
         json={
             "objective": "search-index is down, please create an incident",
             "max_steps": 6,
@@ -80,7 +80,7 @@ def test_run_endpoint_approval_required_case_denied_by_default():
 
 def test_run_endpoint_approval_required_case_auto_approved():
     response = client.post(
-        "/run",
+        "/api/v1/run",
         json={
             "objective": "search-index is down, please create an incident",
             "auto_approve": True,
@@ -100,5 +100,5 @@ def test_run_endpoint_approval_required_case_auto_approved():
 
 
 def test_run_endpoint_rejects_blank_objective():
-    response = client.post("/run", json={"objective": "   "})
+    response = client.post("/api/v1/run", json={"objective": "   "})
     assert response.status_code == 422

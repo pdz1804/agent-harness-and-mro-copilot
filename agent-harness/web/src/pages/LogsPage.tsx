@@ -7,6 +7,7 @@ import { Skeleton } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatusBadge'
 import { ApiError, api } from '../lib/api'
 import type { Incident, RunStatus, RunSummary } from '../lib/api-types'
+import { PageHeader } from '../components/ui/PageHeader'
 
 function formatStartedAt(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleString()
@@ -30,7 +31,7 @@ async function downloadExport(runId: string) {
 }
 
 /** First-class Logs page: every persisted run (survives restarts via
- * SQLite), filterable by status / has-incident / date range, with a
+ * PostgreSQL), filterable by status / has-incident / date range, with a
  * per-run trace export (`GET /runs/{id}/export`) — the audit log a real
  * ops team would want, and useful for attaching real evidence to a
  * submission. */
@@ -94,32 +95,28 @@ export function LogsPage() {
   ]
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-zinc-100">Logs</h1>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Every persisted run trace — audit log + evidence export. Traces survive process
-            restarts (SQLite-backed).
-          </p>
-        </div>
-        <button
+    <div className="mx-auto max-w-6xl">
+      <PageHeader
+        title="Logs"
+        description={<>Every persisted run trace — audit log + evidence export. Traces survive process
+            restarts (PostgreSQL-backed).</>}
+        actions={<><button
           type="button"
           onClick={() => setRefreshToken((n) => n + 1)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 px-2.5 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200"
+          className="ui-btn ui-btn-secondary"
         >
           <ArrowClockwise size={14} weight="bold" />
           Refresh
-        </button>
-      </div>
+        </button></>}
+      />
 
-      <div className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+      <div className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
           Status
-          <select
+          <select name="select"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as RunStatus | 'all')}
-            className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-800"
           >
             {statusOptions.map((s) => (
               <option key={s} value={s}>
@@ -130,10 +127,10 @@ export function LogsPage() {
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
           Incident
-          <select
+          <select name="select"
             value={incidentFilter}
             onChange={(e) => setIncidentFilter(e.target.value as 'all' | 'yes' | 'no')}
-            className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-800"
           >
             <option value="all">Any</option>
             <option value="yes">Has incident</option>
@@ -142,20 +139,20 @@ export function LogsPage() {
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
           From
-          <input
+          <input name="input"
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-800"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
           To
-          <input
+          <input name="input"
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-800"
           />
         </label>
       </div>
@@ -176,12 +173,12 @@ export function LogsPage() {
             description="Adjust the filters above, or start a new run."
           />
         ) : (
-          <ul className="divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800">
+          <ul className="ui-list ui-card divide-y divide-[var(--color-line)] overflow-hidden">
             {filtered.map((run) => (
-              <li key={run.run_id} className="flex items-center justify-between gap-3 px-4 py-3">
+              <li key={run.run_id} className="group flex items-center justify-between gap-3 px-4 py-2.5">
                 <Link to={`/runs/${run.run_id}`} className="min-w-0 flex-1 hover:opacity-80">
-                  <p className="truncate text-sm text-zinc-100">{run.objective}</p>
-                  <p className="font-data mt-0.5 text-xs text-zinc-600">
+                  <p className="truncate text-[13px] font-medium text-zinc-900">{run.objective}</p>
+                  <p className="font-data mt-0.5 truncate text-[11.5px] text-zinc-500">
                     {run.run_id} · {formatStartedAt(run.started_at)}
                     {runIdsWithIncident.has(run.run_id) ? ' · incident opened' : ''}
                   </p>
@@ -201,10 +198,10 @@ export function LogsPage() {
                     }
                   }}
                   title="Export full trace as JSON"
-                  className="inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 text-xs font-medium text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200 disabled:opacity-50"
+                  aria-label={`Export trace ${run.run_id} as JSON`}
+                  className="ui-btn ui-btn-ghost ui-btn-sm ui-btn-icon shrink-0 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                 >
-                  <DownloadSimple size={14} weight="bold" />
-                  Export
+                  <DownloadSimple size={15} weight="bold" />
                 </button>
               </li>
             ))}

@@ -6,7 +6,7 @@ restart, since `RunRegistry` itself is in-memory-only by design)."""
 from __future__ import annotations
 
 from agent_harness import db
-from agent_harness.llm_client import ScriptedLLMClient
+from agent_harness.llm_client import build_scripted_model
 from agent_harness.run_registry import RunRegistry
 
 
@@ -88,18 +88,20 @@ def test_runs_survive_registry_reinstantiation(runs_dir):
     registry_before_restart = RunRegistry(default_runs_dir=str(runs_dir))
     record = registry_before_restart.start_run(
         objective="What is the status of auth-service?",
-        llm_client=ScriptedLLMClient(script),
+        model=build_scripted_model(script),
     )
     run_id = record.run_id
 
     import time
 
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
         snap = registry_before_restart.snapshot(run_id)
         if snap and snap["status"] not in ("running", "pending_approval"):
             break
         time.sleep(0.02)
+    else:
+        raise AssertionError("run did not leave running/pending_approval within 20s")
 
     # Simulate a restart: a fresh RunRegistry has no in-memory knowledge of
     # this run at all.
@@ -120,17 +122,19 @@ def test_list_runs_includes_persisted_run_after_completion(runs_dir):
     script = [{"action": "final_answer", "final_answer": "Done."}]
     registry = RunRegistry(default_runs_dir=str(runs_dir))
     record = registry.start_run(
-        objective="Trivial objective", llm_client=ScriptedLLMClient(script)
+        objective="Trivial objective", model=build_scripted_model(script)
     )
 
     import time
 
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
         snap = registry.snapshot(record.run_id)
         if snap and snap["status"] not in ("running", "pending_approval"):
             break
         time.sleep(0.02)
+    else:
+        raise AssertionError("run did not leave running/pending_approval within 20s")
 
     rows = db.list_runs()
     assert any(r["run_id"] == record.run_id for r in rows)

@@ -1,0 +1,198 @@
+{
+  "scenario_id": "escalates-with-evidence",
+  "expected": {
+    "status": "completed",
+    "escalated": true,
+    "approval_denied": false
+  },
+  "run_result": {
+    "run_id": "5ced91f1350c",
+    "objective": "search-index has been reporting errors. Check its status and create an incident if the evidence supports it.",
+    "status": "completed",
+    "final_answer": "The search-index service is currently down, with a 100% error rate indicating a critical issue. An incident has been created for this problem with the title \"Search Index Service Down\". Immediate investigation and remediation are required.",
+    "steps_taken": 3,
+    "elapsed_seconds": 4.625,
+    "history": [
+      {
+        "run_id": "5ced91f1350c",
+        "step": 1,
+        "event_type": "llm_decision",
+        "timestamp": 1790695573.4874804,
+        "latency_ms": null,
+        "data": {
+          "action": "tool_call",
+          "tool_name": "get_service_status",
+          "tool_args": {
+            "service_name": "search-index"
+          },
+          "rationale": null,
+          "llm_meta": {
+            "model": "gpt-4o-mini-2024-07-18",
+            "prompt_tokens": 464,
+            "completion_tokens": 17,
+            "total_tokens": 481
+          }
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 1,
+        "event_type": "tool_call_started",
+        "timestamp": 1790695573.4894867,
+        "latency_ms": null,
+        "data": {
+          "tool_name": "get_service_status",
+          "args": {
+            "service_name": "search-index"
+          },
+          "attempt": 1
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 1,
+        "event_type": "tool_call_result",
+        "timestamp": 1790695573.5338187,
+        "latency_ms": 32.00000000651926,
+        "data": {
+          "tool_name": "get_service_status",
+          "args": {
+            "service_name": "search-index"
+          },
+          "attempt": 1,
+          "output": {
+            "service_name": "search-index",
+            "status": "down",
+            "last_checked": "",
+            "latency_ms": 0.0,
+            "error_rate_pct": 100.0,
+            "owner": "search-platform",
+            "last_deploy": "2026-09-27T02:30:00Z"
+          }
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 2,
+        "event_type": "llm_decision",
+        "timestamp": 1790695574.8986356,
+        "latency_ms": null,
+        "data": {
+          "action": "tool_call",
+          "tool_name": "create_incident",
+          "tool_args": {
+            "title": "Search Index Service Down",
+            "description": "The search-index service is currently down with a 100% error rate. Immediate investigation and remediation are required.",
+            "severity": "critical"
+          },
+          "rationale": null,
+          "llm_meta": {
+            "model": "gpt-4o-mini-2024-07-18",
+            "prompt_tokens": 543,
+            "completion_tokens": 46,
+            "total_tokens": 589
+          }
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 2,
+        "event_type": "approval_requested",
+        "timestamp": 1790695574.9006362,
+        "latency_ms": null,
+        "data": {
+          "tool_name": "create_incident",
+          "args": {
+            "title": "Search Index Service Down",
+            "description": "The search-index service is currently down with a 100% error rate. Immediate investigation and remediation are required.",
+            "severity": "critical"
+          }
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 2,
+        "event_type": "approval_granted",
+        "timestamp": 1790695574.9006362,
+        "latency_ms": null,
+        "data": {
+          "tool_name": "create_incident",
+          "args": {
+            "title": "Search Index Service Down",
+            "description": "The search-index service is currently down with a 100% error rate. Immediate investigation and remediation are required.",
+            "severity": "critical"
+          }
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 2,
+        "event_type": "tool_call_started",
+        "timestamp": 1790695574.9006362,
+        "latency_ms": null,
+        "data": {
+          "tool_name": "create_incident",
+          "args": {
+            "title": "Search Index Service Down",
+            "description": "The search-index service is currently down with a 100% error rate. Immediate investigation and remediation are required.",
+            "severity": "critical"
+          },
+          "attempt": 1
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 2,
+        "event_type": "tool_call_result",
+        "timestamp": 1790695574.935426,
+        "latency_ms": 30.999999988125637,
+        "data": {
+          "tool_name": "create_incident",
+          "args": {
+            "title": "Search Index Service Down",
+            "description": "The search-index service is currently down with a 100% error rate. Immediate investigation and remediation are required.",
+            "severity": "critical"
+          },
+          "attempt": 1,
+          "output": {
+            "incident_id": "INC-F70BD7D2",
+            "status": "created",
+            "title": "Search Index Service Down",
+            "severity": "critical",
+            "created_at": "2026-09-29T15:26:14.916692+00:00"
+          }
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 3,
+        "event_type": "llm_decision",
+        "timestamp": 1790695576.2058046,
+        "latency_ms": null,
+        "data": {
+          "action": "final_answer",
+          "final_answer": "The search-index service is currently down, with a 100% error rate indicating a critical issue. An incident has been created for this problem with the title \"Search Index Service Down\". Immediate investigation and remediation are required.",
+          "rationale": null,
+          "llm_meta": {
+            "model": "gpt-4o-mini-2024-07-18",
+            "prompt_tokens": 648,
+            "completion_tokens": 45,
+            "total_tokens": 693
+          }
+        }
+      },
+      {
+        "run_id": "5ced91f1350c",
+        "step": 3,
+        "event_type": "final_answer",
+        "timestamp": 1790695576.2067046,
+        "latency_ms": null,
+        "data": {
+          "final_answer": "The search-index service is currently down, with a 100% error rate indicating a critical issue. An incident has been created for this problem with the title \"Search Index Service Down\". Immediate investigation and remediation are required.",
+          "rationale": null
+        }
+      }
+    ],
+    "trace_path": "runs\\5ced91f1350c.jsonl"
+  }
+}

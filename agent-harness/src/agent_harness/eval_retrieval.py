@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from agent_harness import retrieval, settings
 
@@ -47,18 +48,18 @@ def _evaluate(mode: str, queries: list[dict], top_k: int = 3) -> dict[str, float
     }
 
 
-def run(queries_path: Path = QUERIES_PATH) -> dict[str, dict[str, float]]:
+def run(queries_path: Path = QUERIES_PATH) -> dict[str, dict[str, Any]]:
     queries = _load_queries(queries_path)
-    results: dict[str, dict[str, float]] = {}
+    results: dict[str, dict[str, Any]] = {}
     for mode in ("bm25", "dense", "hybrid"):
         try:
             results[mode] = _evaluate(mode, queries)
-        except retrieval.dense_embeddings.EmbeddingModelUnavailable as exc:  # type: ignore[attr-defined]
+        except retrieval.dense_embeddings.EmbeddingModelUnavailable as exc:
             results[mode] = {"error": str(exc)}
     return results
 
 
-def format_markdown_table(results: dict[str, dict[str, float]]) -> str:
+def format_markdown_table(results: dict[str, dict[str, Any]]) -> str:
     lines = ["| mode | recall@1 | recall@3 | MRR |", "| --- | --- | --- | --- |"]
     for mode in ("bm25", "dense", "hybrid"):
         r = results.get(mode, {})

@@ -481,4 +481,149 @@ once the run completes — matching `tests/test_api_streaming.py`'s
 assertions against the same behavior.
 
 ---
+
+# Phase 10 evidence — real token-by-token streaming + chatbot-grade UI (light mode, left nav)
+
+Everything below closes the two gaps the user flagged: (1) the previous
+"streaming" was step/event-level SSE only, not real per-token LLM
+streaming, and (2) the console needed a genuine chatbot-product redesign
+(light mode, left sidebar, message-bubble layout). Both are now real, not
+cosmetic, and verified with a real OpenAI API call and a real Chromium
+browser (Playwright), not curl-only.
+
+## 15. Real per-token streaming captured directly from the OpenAI API (no network mock)
+
+`OpenAIChatLLMClient.raw_decide(..., on_delta=...)` now sets `stream=True`
+on `chat.completions.create` and forwards every `delta.content` /
+`delta.tool_calls[].function.arguments` chunk as it arrives. Captured live
+against the real, funded API key in `.env`:
+
+**Tool-call turn** (`tool_args` field streams the JSON arguments
+character-by-character before the call fires):
+
+```
+NUM_DELTA_CHUNKS: 7
+FIELDS_SEEN: ['tool_args']
+FIRST_5_CHUNKS:
+  field='tool_args' delta='{"'
+  field='tool_args' delta='service'
+  field='tool_args' delta='_name'
+  field='tool_args' delta='":"'
+  field='tool_args' delta='auth'
+ASSEMBLED_FROM_DELTAS: {"service_name":"auth-service"}
+DECISION_ACTION: tool_call
+DECISION_TOOL: get_service_status {'service_name': 'auth-service'}
+LLM_META_MODEL: gpt-4o-mini-2024-07-18
+LLM_META_TOKENS: 479
+```
+
+**Final-answer turn** (`final_answer` field streams the reply token by
+token):
+
+```
+NUM_DELTA_CHUNKS: 26
+FIRST_8_CHUNKS:
+  field='final_answer' delta='The'
+  field='final_answer' delta=' status'
+  field='final_answer' delta=' of'
+  field='final_answer' delta=' the'
+  field='final_answer' delta=' auth'
+  field='final_answer' delta='-service'
+  field='final_answer' delta=' is'
+  field='final_answer' delta=' operational'
+ASSEMBLED_FROM_DELTAS: The status of the auth-service is operational, with a latency of 48 ms and an error rate of 0.1%.
+DECISION_FINAL_ANSWER: The status of the auth-service is operational, with a latency of 48 ms and an error rate of 0.1%.
+MATCH: True
+```
+
+**What this shows:** the deltas are real, ordered, per-token/per-fragment
+chunks sourced from the live OpenAI stream — not a client-side
+`setInterval` animation over an already-complete string — and
+concatenating them reproduces the final assembled/persisted decision
+exactly (`MATCH: True`). `pytest -m live` (`test_live_openai_full_run_against_real_api`)
+independently re-confirms this against the real API on every run.
+
+## 16. Deltas flow through the real SSE endpoint as `llm_token_delta`, never persisted
+
+New backend plumbing: `AgentLoop._decide` passes an `on_delta` callback
+into `raw_decide`; it emits a live-only `AgentEvent(event_type=
+"llm_token_delta", data={"field": ..., "delta": ...})` via
+`TraceLogger.emit_live()` (persists nothing to the JSONL/DB — only
+forwards to the SSE observer). `RunRegistry._on_event` special-cases this
+event type: pushed straight to SSE subscriber queues, never appended to
+`record.history` or written to SQLite. New test
+`test_sse_stream_emits_llm_token_delta_events_that_assemble_to_final_answer`
+(`tests/test_api_streaming.py`) asserts, over the real `GET
+/runs/{id}/events` SSE endpoint: `llm_token_delta` events arrive in order,
+concatenating their `final_answer` deltas equals the persisted
+`final_answer` event's text exactly, and no `llm_token_delta` event ever
+appears in the run's persisted `history` snapshot. `HeuristicMockLLMClient`
+(CI-only) exercises the identical frontend code path via synthetic chunks
+of its already-known string — documented as synthetic, never claimed real.
+
+## 17. Real Chromium browser verification (Playwright), full flow
+
+Server: `uvicorn api:app --port 8000` (real `OPENAI_API_KEY` configured,
+serving the built `web/dist`). Script drove a real Chromium instance
+through the actual product:
+
+1. Light mode confirmed on every page (`New run`, `History`, `Services`,
+   `Incidents`, `Knowledge base`, `Logs`, and an individual run's
+   `Chat`/`Trace` views) — `getComputedStyle(document.body).backgroundColor`
+   read `rgb(255, 255, 255)` on all of them.
+2. Left sidebar navigation (persistent, with History expanding into a
+   scrollable list of recent runs as sub-items) clicked through all six
+   sections successfully.
+3. Started a real run: `"search-index is down, please create an
+   incident"`. The real `create_incident` approval gate fired
+   (`status: pending_approval`, panel rendered with title/description/
+   severity). Clicked **Approve** — the phase-09 SSE/registry race-condition
+   fix survived the redesign: the run resumed and reached `Completed`
+   with no hang or stale approval state.
+4. Final-answer chat bubble sampled twice, 250ms apart, while the run was
+   still `live`:
+   - sample 1: `"...An incident has been created for the search-index service, which is currently down with"`
+   - sample 2 (250ms later): `"...currently down with a 100% error rate. The incident ID is **INC-72D62ABF** and it has been classified as critical. Immediate attention is required to restore functionality."`
+
+   The text visibly grew mid-sentence between samples — genuine real-time
+   token-by-token rendering in the browser DOM, not a screenshot claim.
+5. Trace view re-checked in light mode: the waterfall's per-row
+   descriptive labels from the prior fix are intact (`LLM -> get_service_status`,
+   `get_service_status started`, `get_service_status succeeded`, `Approval:
+   create_incident` x2, `create_incident started`/`succeeded`, `LLM ->
+   final_answer`, `Final answer`) — not repeated tool names.
+6. Run reached `Completed` status; "Mock data only" footer banner
+   ("Services, incidents, and the knowledge base are seeded with mock
+   data — the agent, its retrieval, and its persistence are all real.")
+   visible on every page.
+
+Reproduce with `npm run build` in `web/`, `uvicorn api:app --port 8000`
+from `agent-harness/`, then a Playwright script driving
+`http://127.0.0.1:8000/`.
+
+## 18. `pytest` and `npm run build`, both clean after the redesign
+
+```
+PYTHONPATH=src python -m pytest -q -m "not live"
+...........................................................              [100%]
+59 passed, 1 deselected, 1 warning in 4.09s
+
+PYTHONPATH=src python -m pytest -q -m live
+.                                                                        [100%]
+1 passed, 59 deselected, 1 warning in 4.98s
+```
+
+```
+cd web && npm run build
+> tsc -b && vite build
+✓ 4583 modules transformed.
+dist/assets/index-DmAc1F4T.css   27.22 kB │ gzip:   6.16 kB
+dist/assets/index-B768ECF1.js   379.82 kB │ gzip: 110.84 kB
+✓ built in 249ms
+```
+
+`cli.py` and the synchronous `POST /run` endpoint were not touched by
+this phase — both keep working unmodified.
+
+---
 Author: Phu Nguyen — HCMC, VN

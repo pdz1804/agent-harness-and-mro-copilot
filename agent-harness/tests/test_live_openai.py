@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 from agent_harness.approval import always_approve
-from agent_harness.llm_client import OpenAIChatLLMClient
+from agent_harness.llm_client import build_openai_model
 from agent_harness.loop import AgentLoop
 from agent_harness.settings import OPENAI_API_KEY
 
@@ -24,9 +24,9 @@ pytestmark = pytest.mark.live
 
 @pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set; live test skipped")
 def test_live_openai_full_run_against_real_api(tools, runs_dir, fast_config):
-    llm = OpenAIChatLLMClient(tools=tools)
+    model = build_openai_model()
     loop = AgentLoop(
-        llm_client=llm,
+        model=model,
         tools=tools,
         config=fast_config,
         approval_callback=always_approve,

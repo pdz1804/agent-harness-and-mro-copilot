@@ -28,9 +28,10 @@ from pathlib import Path
 from agent_harness import db
 from agent_harness.approval import always_approve, cli_prompt_approval
 from agent_harness.config import HarnessConfig
-from agent_harness.llm_client import HeuristicMockLLMClient
+from agent_harness.llm_client import build_openai_model, build_test_model
 from agent_harness.loop import AgentLoop
 from agent_harness.settings import OPENAI_API_KEY
+from agent_harness.tools.registry import build_default_registry
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     db.ensure_ready()
 
     if args.mock:
-        llm_client = HeuristicMockLLMClient()
+        model = build_test_model()
     else:
         if not OPENAI_API_KEY:
             print(
@@ -65,18 +66,20 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        from agent_harness.llm_client import OpenAIChatLLMClient
-
         try:
-            llm_client = OpenAIChatLLMClient()
+            model = build_openai_model()
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
 
     approval_callback = always_approve if args.auto_approve else cli_prompt_approval
     config = HarnessConfig(max_steps=args.max_steps, max_wall_clock_seconds=args.max_wall_clock_seconds)
+    # The CLI has no signed-in user, and the dashboard tools act on behalf of one
+    # (ownership, RBAC), so only the identity-free tools are offered here.
+    tools = {name: tool for name, tool in build_default_registry().items() if tool.required_action is None}
     loop = AgentLoop(
-        llm_client=llm_client,
+        model=model,
+        tools=tools,
         config=config,
         approval_callback=approval_callback,
         runs_dir=Path(args.runs_dir),

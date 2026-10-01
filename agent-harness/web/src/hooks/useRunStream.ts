@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../lib/api'
 import { TERMINAL_STATUSES, type AgentEvent, type EventType, type RunSnapshot } from '../lib/api-types'
+import { SNAPSHOT_POLL_MS, eventKey, mergeSnapshot } from '../lib/run-snapshot-merge'
 
 interface UseRunStreamResult {
   snapshot: RunSnapshot | null
@@ -12,6 +13,17 @@ interface UseRunStreamResult {
    * from the initial fetch. */
   live: boolean
   refresh: () => void
+  /** Live-only token-by-token text accumulated from `llm_token_delta`
+   * events (field="final_answer") for the CURRENT in-flight LLM turn —
+   * sourced from the real OpenAI streaming API (or synthetic chunks from
+   * the CI-only heuristic client). Cleared once the persisted
+   * `final_answer` event lands (its text becomes the source of truth) or
+   * a new turn starts. Renders the chat bubble typing out in real time. */
+  streamingFinalAnswer: string
+  /** Same idea for `field="tool_args"` deltas: the JSON arguments for the
+   * next tool call, visibly assembling character-by-character before the
+   * call actually fires. */
+  streamingToolArgs: string
 }
 
 const ALL_EVENT_TYPES: EventType[] = [
@@ -28,14 +40,20 @@ const ALL_EVENT_TYPES: EventType[] = [
   'approval_requested',
   'approval_granted',
   'approval_denied',
+  'approval_timed_out',
   'final_answer',
   'step_limit_exceeded',
   'time_limit_exceeded',
+  'run_cancelled',
+  'context_compacted',
+  'guardrail_blocked',
+  'guardrail_severity_downgraded',
+  'skill_invoked',
+  'skills_assigned',
+  'skill_routed',
+  'skill_routing_failed',
+  'no_tools_available',
 ]
-
-function eventKey(event: AgentEvent): string {
-  return `${event.step}:${event.event_type}:${event.timestamp}`
-}
 
 /** Real-time run view: one `GET /runs/{id}` snapshot fetch first (so a
  * page refresh/deep-link isn't empty while the stream connects), then a
@@ -55,7 +73,19 @@ export function useRunStream(runId: string | undefined): UseRunStreamResult {
   const [notFound, setNotFound] = useState(false)
   const [live, setLive] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
+  const [streamingFinalAnswer, setStreamingFinalAnswer] = useState('')
+  const [streamingToolArgs, setStreamingToolArgs] = useState('')
   const seenKeys = useRef<Set<string>>(new Set())
+  const terminalRef = useRef(false)
+  const isTerminal = !!snapshot && TERMINAL_STATUSES.has(snapshot.status)
+  useEffect(() => {
+    terminalRef.current = isTerminal
+    if (isTerminal) {
+      // A finished run shows its real outcome, never a half-streamed fragment.
+      setStreamingFinalAnswer('')
+      setStreamingToolArgs('')
+    }
+  }, [isTerminal])
 
   useEffect(() => {
     if (!runId) return
@@ -65,14 +95,17 @@ export function useRunStream(runId: string | undefined): UseRunStreamResult {
     setError(null)
     setNotFound(false)
     setLive(false)
+    setStreamingFinalAnswer('')
+    setStreamingToolArgs('')
     seenKeys.current = new Set()
+    terminalRef.current = false
 
     const refetchSnapshot = async () => {
       try {
         const next = await api.getRun(runId)
         if (cancelled) return
-        seenKeys.current = new Set(next.history.map(eventKey))
-        setSnapshot(next)
+        for (const e of next.history) seenKeys.current.add(eventKey(e))
+        setSnapshot((prev) => mergeSnapshot(prev, next))
         setLoading(false)
       } catch (err) {
         if (cancelled) return
@@ -111,12 +144,55 @@ export function useRunStream(runId: string | undefined): UseRunStreamResult {
         const key = eventKey(event)
         if (seenKeys.current.has(key)) return
         seenKeys.current.add(key)
-        setSnapshot((prev) => (prev ? { ...prev, history: [...prev.history, event] } : prev))
+        // A persisted event closes out the live-only delta overlay for
+        // this turn: llm_decision/final_answer carry the full assembled
+        // text already, so the streaming buffers are no longer needed.
+        if (event.event_type === 'llm_decision' || event.event_type === 'final_answer') {
+          setStreamingFinalAnswer('')
+          setStreamingToolArgs('')
+        }
+        // The persisted event that ends a turn carries the whole answer: either
+        // `final_answer`, or the `llm_decision` with action "final_answer" that
+        // precedes it. Put the text on the snapshot in the same update that
+        // clears the streaming buffer, so the answer never disappears in the gap
+        // before the authoritative snapshot refetch lands (that flash shrank the
+        // thread and yanked the scroll position).
+        const endsTurn =
+          event.event_type === 'final_answer' ||
+          (event.event_type === 'llm_decision' && event.data.action === 'final_answer')
+        const finalAnswer = endsTurn && typeof event.data.final_answer === 'string' ? event.data.final_answer : null
+        setSnapshot((prev) =>
+          prev
+            ? {
+                ...prev,
+                history: [...prev.history, event],
+                final_answer: finalAnswer ?? prev.final_answer,
+              }
+            : prev,
+        )
       }
 
       for (const type of ALL_EVENT_TYPES) {
         source.addEventListener(type, appendEvent as EventListener)
       }
+
+      // Live-only overlay: never appended to history (see run_registry.py
+      // ::_on_event / trace_logger.py::emit_live). Real token-by-token text
+      // as it streams from the provider.
+      source.addEventListener('llm_token_delta', (raw: MessageEvent<string>) => {
+        try {
+          const event = JSON.parse(raw.data) as AgentEvent
+          const field = event.data.field
+          const delta = typeof event.data.delta === 'string' ? event.data.delta : ''
+          if (field === 'final_answer') {
+            setStreamingFinalAnswer((prev) => prev + delta)
+          } else if (field === 'tool_args') {
+            setStreamingToolArgs((prev) => prev + delta)
+          }
+        } catch {
+          // ignore malformed payload
+        }
+      })
 
       source.addEventListener('run_snapshot', (raw: MessageEvent<string>) => {
         // Persisted-only run (not live in this process, e.g. after a
@@ -146,8 +222,17 @@ export function useRunStream(runId: string | undefined): UseRunStreamResult {
 
     void start()
 
+    // Safety net under the stream: while the run is in flight, re-read the
+    // snapshot every few seconds so status, the pending approval and the
+    // final outcome always converge, even if the EventSource never delivers.
+    const poll = setInterval(() => {
+      if (cancelled || terminalRef.current) return
+      void refetchSnapshot()
+    }, SNAPSHOT_POLL_MS)
+
     return () => {
       cancelled = true
+      clearInterval(poll)
       source?.close()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,7 +240,7 @@ export function useRunStream(runId: string | undefined): UseRunStreamResult {
 
   // Stop treating the connection as "live" once a terminal status is
   // reached, even if stream_end hasn't round-tripped yet.
-  const effectiveLive = live && !(snapshot && TERMINAL_STATUSES.has(snapshot.status))
+  const effectiveLive = live && !isTerminal
 
   return {
     snapshot,
@@ -164,5 +249,7 @@ export function useRunStream(runId: string | undefined): UseRunStreamResult {
     notFound,
     live: effectiveLive,
     refresh: () => setRefreshToken((n) => n + 1),
+    streamingFinalAnswer,
+    streamingToolArgs,
   }
 }

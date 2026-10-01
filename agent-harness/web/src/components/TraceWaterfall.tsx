@@ -8,7 +8,7 @@ import type { AgentEvent, EventType } from '../lib/api-types'
  * own trace data (`step`/`timestamp`/`latency_ms`/`data`); no external
  * OTel collector or backend required — see phase-07 spec part D. */
 
-type SpanKind = 'llm_decision' | 'tool_call' | 'approval' | 'error' | 'terminal'
+type SpanKind = 'llm_decision' | 'tool_call' | 'approval' | 'error' | 'terminal' | 'compaction' | 'guardrail'
 
 const KIND_BY_EVENT: Record<EventType, SpanKind> = {
   llm_decision: 'llm_decision',
@@ -24,9 +24,23 @@ const KIND_BY_EVENT: Record<EventType, SpanKind> = {
   approval_requested: 'approval',
   approval_granted: 'approval',
   approval_denied: 'approval',
+  approval_timed_out: 'approval',
   final_answer: 'terminal',
   step_limit_exceeded: 'terminal',
   time_limit_exceeded: 'terminal',
+  // Live-only overlay event, never persisted to history (see loop.py /
+  // run_registry.py) — the waterfall only ever renders persisted events,
+  // but the Record must stay exhaustive over EventType.
+  llm_token_delta: 'llm_decision',
+  context_compacted: 'compaction',
+  guardrail_blocked: 'guardrail',
+  guardrail_severity_downgraded: 'guardrail',
+  skill_invoked: 'llm_decision',
+  skills_assigned: 'llm_decision',
+  skill_routed: 'llm_decision',
+  skill_routing_failed: 'error',
+  no_tools_available: 'guardrail',
+  run_cancelled: 'terminal',
 }
 
 const KIND_COLOR: Record<SpanKind, string> = {
@@ -35,6 +49,8 @@ const KIND_COLOR: Record<SpanKind, string> = {
   approval: 'bg-violet-500',
   error: 'bg-rose-500',
   terminal: 'bg-emerald-500',
+  compaction: 'bg-fuchsia-500',
+  guardrail: 'bg-pink-600',
 }
 
 const KIND_LABEL: Record<SpanKind, string> = {
@@ -43,6 +59,8 @@ const KIND_LABEL: Record<SpanKind, string> = {
   approval: 'Approval',
   error: 'Error',
   terminal: 'Terminal',
+  compaction: 'Context compacted',
+  guardrail: 'Guardrail',
 }
 
 interface Span {
@@ -66,18 +84,45 @@ function spanLabel(event: AgentEvent): string {
         ? `LLM -> ${String(event.data.tool_name ?? 'tool')}`
         : 'LLM -> final_answer'
     case 'tool_call_started':
+      return `${toolLabel(event)} started`
     case 'tool_call_result':
+      return `${toolLabel(event)} succeeded`
     case 'tool_call_error':
+      return `${toolLabel(event)} error`
     case 'tool_call_timeout':
+      return `${toolLabel(event)} timed out`
     case 'tool_call_retry':
+      return `${toolLabel(event)} retrying`
     case 'tool_call_retries_exhausted':
-      return toolLabel(event)
+      return `${toolLabel(event)} retries exhausted`
+    case 'llm_malformed_response':
+      return 'LLM malformed response'
+    case 'llm_retry_exhausted':
+      return 'LLM retries exhausted'
+    case 'tool_validation_error':
+      return `${toolLabel(event)} validation error`
+    case 'step_limit_exceeded':
+      return 'Step limit exceeded'
+    case 'time_limit_exceeded':
+      return 'Time limit exceeded'
     case 'approval_requested':
     case 'approval_granted':
     case 'approval_denied':
+    case 'approval_timed_out':
       return `Approval: ${toolLabel(event)}`
     case 'final_answer':
       return 'Final answer'
+    case 'context_compacted': {
+      const before = String(event.data.tokens_before ?? '?')
+      const after = String(event.data.tokens_after ?? '?')
+      return `Context compacted (${before} -> ${after} tokens)`
+    }
+    case 'guardrail_blocked':
+      return `Guardrail blocked: ${String(event.data.matched_pattern ?? '?')}`
+    case 'guardrail_severity_downgraded':
+      return `Guardrail: severity ${String(event.data.proposed_severity ?? '?')} -> ${String(
+        event.data.downgraded_to ?? '?',
+      )}`
     default:
       return event.event_type
   }
@@ -113,7 +158,7 @@ export function TraceWaterfall({ events }: { events: AgentEvent[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3 text-[11px] text-zinc-500">
+      <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
         {(Object.keys(KIND_LABEL) as SpanKind[]).map((kind) => (
           <span key={kind} className="inline-flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-sm ${KIND_COLOR[kind]}`} />
@@ -122,7 +167,7 @@ export function TraceWaterfall({ events }: { events: AgentEvent[] }) {
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3">
         <div className="min-w-[560px] space-y-1">
           {spans.map((span) => {
             const leftPct = (span.startMs / totalMs) * 100
@@ -134,19 +179,19 @@ export function TraceWaterfall({ events }: { events: AgentEvent[] }) {
                 type="button"
                 onClick={() => setSelected(isSelected ? null : span)}
                 className={`group flex w-full items-center gap-2 rounded px-1 py-0.5 text-left transition ${
-                  isSelected ? 'bg-zinc-800/60' : 'hover:bg-zinc-900'
+                  isSelected ? 'bg-zinc-200/70' : 'hover:bg-zinc-100'
                 }`}
               >
-                <span className="w-40 shrink-0 truncate font-data text-[11px] text-zinc-400">
+                <span className="w-56 shrink-0 truncate font-data text-xs text-zinc-600">
                   step {span.event.step} · {span.label}
                 </span>
-                <span className="relative h-3 flex-1 rounded bg-zinc-900">
+                <span className="relative h-3 flex-1 rounded bg-zinc-200">
                   <span
                     className={`absolute top-0 h-3 min-w-[3px] rounded ${KIND_COLOR[span.kind]}`}
                     style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                   />
                 </span>
-                <span className="w-16 shrink-0 text-right font-data text-[11px] text-zinc-600">
+                <span className="w-16 shrink-0 text-right font-data text-xs text-zinc-500">
                   {span.durationMs >= 1 ? `${span.durationMs.toFixed(0)}ms` : '—'}
                 </span>
               </button>
@@ -156,34 +201,34 @@ export function TraceWaterfall({ events }: { events: AgentEvent[] }) {
       </div>
 
       {selected && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-zinc-100">{selected.label}</h3>
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${KIND_COLOR[selected.kind]}`}>
+            <h3 className="text-sm font-semibold text-zinc-900">{selected.label}</h3>
+            <span className={`rounded px-1.5 py-0.5 text-xs font-medium text-white ${KIND_COLOR[selected.kind]}`}>
               {KIND_LABEL[selected.kind]}
             </span>
           </div>
-          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-400 sm:grid-cols-4">
+          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-500 sm:grid-cols-4">
             <div>
-              <dt className="text-zinc-600">Step</dt>
-              <dd className="font-data text-zinc-300">{selected.event.step}</dd>
+              <dt className="text-zinc-500">Step</dt>
+              <dd className="font-data text-zinc-700">{selected.event.step}</dd>
             </div>
             <div>
-              <dt className="text-zinc-600">Start offset</dt>
-              <dd className="font-data text-zinc-300">{selected.startMs.toFixed(0)}ms</dd>
+              <dt className="text-zinc-500">Start offset</dt>
+              <dd className="font-data text-zinc-700">{selected.startMs.toFixed(0)}ms</dd>
             </div>
             <div>
-              <dt className="text-zinc-600">Duration</dt>
-              <dd className="font-data text-zinc-300">
+              <dt className="text-zinc-500">Duration</dt>
+              <dd className="font-data text-zinc-700">
                 {selected.event.latency_ms !== null ? `${selected.event.latency_ms.toFixed(1)}ms` : 'n/a'}
               </dd>
             </div>
             <div>
-              <dt className="text-zinc-600">Event type</dt>
-              <dd className="font-data text-zinc-300">{selected.event.event_type}</dd>
+              <dt className="text-zinc-500">Event type</dt>
+              <dd className="font-data text-zinc-700">{selected.event.event_type}</dd>
             </div>
           </dl>
-          <pre className="font-data mt-3 max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-400 ring-1 ring-zinc-800">
+          <pre className="font-data mt-3 max-h-64 overflow-auto rounded-md bg-zinc-50 p-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
             {JSON.stringify(selected.event.data, null, 2)}
           </pre>
         </div>

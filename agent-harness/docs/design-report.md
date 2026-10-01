@@ -443,6 +443,277 @@ polling" — all now done. Genuinely still open:
 - Optional bonus OTel spans (console/file exporter) alongside the
   harness-native trace waterfall, if ever needed for interop with a real
   OTel backend.
+- Surface eval results (§10) in the web UI (deferred to a later phase by
+  design — this phase is backend/observability only).
+
+## 10. MLflow observability: real tracing + recorded-transcript eval
+
+Added after migrating the loop to Pydantic AI (§8/loop.py's node-driving
+design) — that migration meant real per-call LLM/tool spans need to be
+harvested from `agent.iter()`'s node loop rather than from a single
+hand-rolled `LLMClient.raw_decide()` call site.
+
+**What was checked before writing any instrumentation code** (installed
+versions: `mlflow==3.16.1`, `pydantic-ai==2.51.0`):
+- `mlflow.pydantic_ai.autolog()` exists, runs without raising, and does
+  capture real spans (`FunctionModel.request`/`OpenAIChatModel.request`,
+  tool spans) for calls made through `Agent.iter()`. But MLflow's own
+  compatibility matrix for this integration
+  (<https://mlflow.org/docs/latest/genai/tracing/integrations/listing/pydantic_ai/>)
+  only covers pydantic-ai 0.2.19-1.94.0 — this project pins 2.51.0, well
+  outside that range — and empirically, calling `autolog()` alone and then
+  running an objective produced each LLM/tool call as its own **top-level
+  trace** (`parent_id=None`), not one coherent trace per agent run. Real
+  telemetry, but not what "every real run produces a real MLflow trace"
+  needs.
+- Manual `mlflow.start_span(...)` context managers, opened from inside the
+  same coroutine/task that drives `agent.iter()` (i.e. inside
+  `AgentLoop._run_async`/`_execute_with_retries`/`_stream_model_request`/
+  `_log_llm_decision` in `loop.py`), reliably nest under one parent span
+  per run — verified by a probe run whose resulting trace showed one
+  `agent_run` span containing every `llm_request`/`llm_decision`/
+  `tool_call:<name>` span for that objective, in order, plus autolog's own
+  `OpenAIChatModel.request` span nested correctly *when opened from that
+  same context* (see `agent_harness/observability.py`'s module docstring
+  for the exact evidence). **Decision:** manual spans are the primary,
+  relied-upon instrumentation; `mlflow.pydantic_ai.autolog()` stays enabled
+  as a best-effort extra (never fatal if it fails to attach).
+- `mlflow.genai.evaluate()` + the `@mlflow.genai.scorers.scorer` decorator
+  are both present and stable in 3.16.1 and were used as-is — no fallback
+  needed there.
+
+**Tracing (`agent_harness/observability.py` + `loop.py`).** No-op unless
+`MLFLOW_TRACKING_URI` is set (unit tests never set it, so the 57-test
+suite has zero MLflow/network dependency). When set:
+- `AgentLoop.__init__` calls `observability.init_mlflow()` once per
+  process (idempotent): sets the tracking URI/experiment, attempts
+  `mlflow.pydantic_ai.autolog()`.
+- `_run_async` wraps the whole run in an `agent_run` span (`AGENT` type;
+  inputs = objective, outputs = status/final_answer/steps_taken/elapsed).
+- `_stream_model_request` wraps the real streaming LLM call in an
+  `llm_request` span (`LLM` type) — this is where real network latency is
+  captured.
+- `_log_llm_decision` opens a zero-duration `llm_decision` span (`LLM`
+  type) recording the assembled decision (tool call or final answer) plus
+  real token usage (`prompt_tokens`/`completion_tokens`/`total_tokens`,
+  model name) as its outputs.
+- `_execute_with_retries` wraps the whole retry loop in a
+  `tool_call:<tool_name>` span (`TOOL` type; inputs = validated args,
+  outputs = the tool's output dict or `None` on exhausted retries).
+
+**Real captured evidence** (one live run of `"What is the status of
+auth-service?"` against gpt-4o-mini, pulled back via
+`MlflowClient.search_traces`):
+
+```
+TRACE tr-988cc541d8193c44775b37d865fb92ea  status=OK  duration_ms=4529
+  agent_run              AGENT  0.0ms -> 4529.3ms
+  llm_request            LLM    52.8ms -> 2687.4ms   (real OpenAI round trip)
+  OpenAIChatModel.request LLM   52.8ms -> 2686.3ms   (autolog, nested correctly here)
+  llm_decision            LLM   2687.9ms (instant)   tool_call get_service_status
+  tool_call:get_service_status TOOL  2690.3ms -> 2732.9ms
+  get_service_status       TOOL 2690.3ms -> 2732.9ms (autolog)
+  llm_request              LLM  2733.6ms -> 4526.3ms
+  llm_decision              LLM 4527.4ms (instant)   final_answer, prompt_tokens=532,
+                                                       completion_tokens=52, total_tokens=584
+```
+
+The two `llm_decision` spans' real `llm_meta` outputs: first decision —
+`{"model": "gpt-4o-mini-2024-07-18", "prompt_tokens": 452,
+"completion_tokens": 17, "total_tokens": 469}`; final decision —
+`{"model": "gpt-4o-mini-2024-07-18", "prompt_tokens": 532,
+"completion_tokens": 52, "total_tokens": 584}`.
+
+**Recorded-transcript eval (`agent_harness/eval/`).**
+`capture_transcripts.py` runs 5 real objectives against the real API
+(`OPENAI_API_KEY`, gpt-4o-mini), one per required scenario, and writes each
+`RunResult` + expected outcome to `eval/transcripts/*.json` (checked in, so
+a reviewer can score without re-spending API credits):
+
+| scenario | real outcome |
+|---|---|
+| `escalates-with-evidence` | `search-index` down -> investigated -> `create_incident` executed |
+| `declines-healthy-service` | `auth-service` operational -> reported, no escalation |
+| `recovers-from-unknown-service` | `fraud-detector` not in registry -> `ToolExecutionError` -> retries exhausted -> agent still answers |
+| `approval-gate-denied` | same escalation-worthy objective, approval callback denies -> `create_incident` never executes |
+| `step-limit-exceeded` | same objective, `max_steps=1` -> real `step_limit_exceeded` after one real LLM call |
+
+`scorers.py` derives `{status, escalated, approval_denied}` from each
+transcript's real event history and compares it to the scenario's expected
+outcome via three `mlflow.genai.scorers.scorer`-decorated functions
+(`status_matches_expected`, `escalation_decision_matches_expected`,
+`approval_denial_handled_as_expected`). `run_eval.py` feeds all 5 into
+`mlflow.genai.evaluate()`. Real result from the captured transcripts (all
+5/5, all scorers):
+
+```
+status_matches_expected/mean: 1.0
+escalation_decision_matches_expected/mean: 1.0
+approval_denial_handled_as_expected/mean: 1.0
+```
+
+Each row also carries its own real `trace_id` (e.g.
+`tr-020f22b83b09a94deda862dc0f5030ca`) in the MLflow eval-results table,
+linking each scored outcome back to its original captured trace.
+
+## 11. v3: RBAC, agents & skill routing, dashboards, eval agent
+
+### 11a. RBAC
+
+Identity is a local, per-request `X-User-Id` header (SSE uses `?as_user=`)
+resolved server-side against 4 seeded users — **not authentication**; this
+is stated in the UI itself, not just this doc. What's real is the
+enforcement: `agent_harness/rbac.py`'s role -> action matrix
+(`admin`/`editor`/`viewer`) plus an ownership+visibility check
+(`Resource(owner_id, visibility)`) applied on every mutating route via
+`deps.require(action)` / `can_read`/`can_write`. Rejected alternative: a
+per-object ACL table — overkill for 3 roles (YAGNI), and every resource
+already has exactly one owner plus a binary shared/private flag, which is
+what every UI actually needed. Unreadable resources 404 (don't leak
+existence); readable-but-unwritable resources 403.
+
+### 11b. Agents & skill routing
+
+A **skill** is instructions + `allowed_tools` (a subset of the harness's 3
+tools) + a description used as the routing signal — deliberately not a code
+plugin: no new tool capability is needed, skills only *scope* the existing
+tools. An **agent** binds a prompt (+ optional pinned version, so upgrading
+the active prompt doesn't silently change a pinned agent's behavior), a
+skill-routing mode, and a base tool set:
+
+- `none` — just the agent's `base_tools`.
+- `assigned` — tool set is the union of its skills' `allowed_tools`
+  intersected with enabled integrations; no routing call.
+- `auto` — a separate Pydantic AI `Agent(output_type=SkillSelection)` runs
+  *before* the main loop (traced as `skill_routed`, with confidence +
+  rationale); rejected alternative: a mid-run `load_skill` meta-tool — a
+  dynamic toolset swap inside `Agent.iter()` is fragile and much harder to
+  test/trace than a deterministic pre-step.
+- `/slug rest` slash commands are parsed server-side at run start, force
+  that skill, and trace `skill_invoked` — rejected alternative: client-only
+  expansion, which is bypassable and wouldn't show up in the trace at all.
+
+The input guardrail check always runs *before* the auto-mode router (a
+real bug caught and fixed during v3: a blocked objective was briefly
+emitting a wasted `skill_routed` event ahead of `guardrail_blocked`).
+
+### 11c. Dashboards: real safety layers on widget SQL
+
+A dashboard widget stores a real SQL query, executed live on Refresh —
+deliberately not a cache-only chart. That SQL is written by editors and,
+since v4, by the agent itself (`create_dashboard`/`add_widget`), so it is
+treated as untrusted input and held back by independent layers; the last one
+is the actual guarantee.
+
+1. **Parse-based allowlist** (`sql_guard.py`, `sqlglot`): exactly one
+   `SELECT`/`WITH ... SELECT`; every node is inspected, so mutation or utility
+   syntax is rejected even nested inside a CTE; every table must be one of
+   the curated views (`ALLOWED_RELATIONS`) or a CTE defined in the query
+   (schema-qualified names and base tables such as `users` are rejected);
+   every function must be a known SQL function or on a short allowlist, so
+   `pg_read_file`, `pg_ls_dir`, `lo_*`, `dblink`, `set_config`,
+   `current_setting`, `query_to_xml` ... are rejected by name. Anything the
+   parser cannot read fails closed. The original keyword blocklist is kept as a
+   secondary layer.
+2. **Database boundary** (`db.run_read_only_query`, migration
+   `a6c2d8e4f1b7`): the application role is a Postgres superuser, so a READ
+   ONLY transaction alone still allows reading server files and every table
+   (a P0 found in the v4 audit and reproduced live). The query now runs under
+   `SET LOCAL ROLE harness_reader` — NOLOGIN, NOSUPERUSER, no privileges on
+   any base table, only SELECT on curated, column-limited views in schema
+   `harness_ro` — inside a READ ONLY, always-rolled-back transaction with a
+   `statement_timeout` and a row cap. The reader cannot call `set_config`
+   (revoked from PUBLIC; the app role is granted it explicitly), so it cannot
+   change its role or its scope from inside a SELECT.
+3. **Owner scoping**: the views filter on the transaction-local settings
+   `app.user_id` / `app.is_admin`, set (as the app role) before privileges are
+   dropped; they are `security_barrier` views so a user-written predicate can
+   never run ahead of the filter. A non-admin therefore only reads rows that
+   belong to their own runs/sessions/incidents. A widget refresh always runs
+   with the dashboard owner's scope, not the viewer's, because the stored
+   snapshot is shared with everyone who can read the dashboard. Unscoped
+   queries get no rows from scoped views.
+4. **No raw errors to the client**: `db.describe_query_error` returns the
+   database's own primary message for fixable problems (bad column, syntax) and
+   fixed phrases for everything else (permission, timeout).
+
+One broken or slow widget never blocks the rest of its dashboard: each widget's
+SQL runs independently.
+
+### 11e. v4: agent-created dashboards, prompt verification, KB, chat
+
+* **Agent-created dashboards.** `create_dashboard` / `add_widget` are
+  approval-gated tools (`Tool.precheck`): after schema validation and before
+  the human is asked, every widget is dry-run through the same read-only path,
+  so a widget that cannot work is bounced back to the model and the approval
+  card (name, widgets, SQL, live columns/row counts/sample rows) only ever
+  shows something that will render. Approving writes one transaction
+  (`repos.dashboards.create_dashboard_with_widgets`), owned by the run's owner,
+  linked to the run (`created_by_run_id`, also the idempotency key). RBAC: the
+  tools are not even offered to a role without `mutate_artifacts`
+  (`build_default_registry`), and `precheck` re-checks. Both are Integrations
+  toggles and the seeded `build-dashboard` skill routes to them.
+* **Prompt verification.** Every version is linted (empty, too short/long,
+  unsupported or missing `{{placeholders}}`, contradictory instructions) with
+  simple, explainable rules in `prompt_verification.py`; an optional LLM review
+  is advisory. Results persist per version (`prompt_versions.verification`);
+  activation (and roll-back) is refused (409) for a failing lint. Placeholders
+  are real: `{{today}}`, `{{user_name}}`, `{{user_role}}` are substituted when a
+  run's system prompt is built.
+* **Playground.** `POST /runs` accepts a `playground` spec (an unsaved draft or
+  a saved version) that replaces the agent's system prompt; everything else is
+  the normal run path (real tools, real approval gate, guardrails, SSE), so
+  comparing two versions is two real runs on one input.
+* **Knowledge base.** Seed runbooks stay files; documents added in the UI are
+  rows in `kb_documents`, chunked and indexed by the same BM25 + dense/RRF
+  pipeline. The viewer shows the exact indexed chunks; the playground exposes
+  BM25, vector and fused scores per chunk and which chunks the agent's tool
+  would return.
+* **Chat.** A session is one continuous thread (earlier turns are also given
+  to the model as context); stick-to-bottom follows only while the reader is at
+  the bottom; the approval card is rendered inline where the run paused;
+  runs can be stopped (`POST /runs/{id}/cancel`, cooperative: the in-flight LLM
+  request finishes, nothing after it runs).
+
+### 11d. Eval agent: methodology and judge limitations
+
+One Pydantic AI `Agent(output_type=JudgeVerdict)` call per run (not one
+call per metric — cost-bounded, ~1 `gpt-4o-mini` call/run), scoring
+`task_success`/`groundedness`/`tool_choice`/`safety_ok`/`routing_fit` (the
+last two `None`/omitted when not applicable — no tool call, no skill
+routing — rather than a guessed middle value) from a compact transcript
+built from the run's own persisted trace. Merged with deterministic,
+judge-free metrics computed purely from event timestamps/counts
+(`eval/metrics.py`): `latency_ms`, `agent_latency_ms`, `total_tokens`,
+`steps`, `tool_errors`. `tool_use_correctness` and `safety` are hybrid:
+averaged from a rule-based half (always available, zero cost) and the
+judge's half when it ran.
+
+**Two durations, not one.** `latency_ms` is wall-clock (first to last trace
+event) and therefore includes any time a run spent waiting on a human
+approval decision — a run that paused for 10 minutes on `create_incident`
+would otherwise look catastrophically slow. `agent_latency_ms` subtracts
+every `approval_requested` -> `approval_granted`/`denied` span, leaving
+only the time the agent itself (LLM calls + tool execution) was active;
+the two are equal for a run that never hit an approval gate. The Evals UI
+shows both, each with its own label and tooltip, rather than picking one.
+
+**Honesty contract, not a fabricated score.** With no `OPENAI_API_KEY`
+configured, every judge-derived metric is persisted with `status
+="unavailable"` and `score=None` — never a guessed number; a malformed/
+unparseable judge response gets a `status="error"` row instead of crashing
+the whole scoring run. `judge_version` is a hash of (judge prompt version
+id, model name, rubric code version) — bumping the rubric/merge logic (as
+this phase's `agent_latency_ms` addition did) invalidates previously
+-scored runs so they get re-scored under the new logic rather than silently
+mixing two different rubrics' scores in one trend line.
+
+**Known limitation (not built):** the judge sees one transcript at a time
+and has no memory of prior verdicts — there is no calibration step
+checking that its 1-5 scores stay consistent across runs/reviewers over
+time (a real eval program would periodically sample judge output against
+human review). Scheduled/recurring eval runs are also out of scope — every
+scoring run today is triggered manually ("Score my sessions").
 
 ---
 Author: Phu Nguyen — HCMC, VN

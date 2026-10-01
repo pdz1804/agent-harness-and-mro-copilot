@@ -1,0 +1,88 @@
+{
+  "scenario_id": "step-limit-exceeded",
+  "expected": {
+    "status": "step_limit_exceeded",
+    "escalated": false,
+    "approval_denied": false
+  },
+  "run_result": {
+    "run_id": "4aa8b677c39d",
+    "objective": "search-index has been reporting errors. Check its status and create an incident if the evidence supports it.",
+    "status": "step_limit_exceeded",
+    "final_answer": null,
+    "steps_taken": 1,
+    "elapsed_seconds": 3.014999999984866,
+    "history": [
+      {
+        "run_id": "4aa8b677c39d",
+        "step": 1,
+        "event_type": "llm_decision",
+        "timestamp": 1790695589.9778404,
+        "latency_ms": null,
+        "data": {
+          "action": "tool_call",
+          "tool_name": "get_service_status",
+          "tool_args": {
+            "service_name": "search-index"
+          },
+          "rationale": null,
+          "llm_meta": {
+            "model": "gpt-4o-mini-2024-07-18",
+            "prompt_tokens": 464,
+            "completion_tokens": 17,
+            "total_tokens": 481
+          }
+        }
+      },
+      {
+        "run_id": "4aa8b677c39d",
+        "step": 1,
+        "event_type": "tool_call_started",
+        "timestamp": 1790695589.9833484,
+        "latency_ms": null,
+        "data": {
+          "tool_name": "get_service_status",
+          "args": {
+            "service_name": "search-index"
+          },
+          "attempt": 1
+        }
+      },
+      {
+        "run_id": "4aa8b677c39d",
+        "step": 1,
+        "event_type": "tool_call_result",
+        "timestamp": 1790695589.9986145,
+        "latency_ms": 14.999999984866008,
+        "data": {
+          "tool_name": "get_service_status",
+          "args": {
+            "service_name": "search-index"
+          },
+          "attempt": 1,
+          "output": {
+            "service_name": "search-index",
+            "status": "down",
+            "last_checked": "",
+            "latency_ms": 0.0,
+            "error_rate_pct": 100.0,
+            "owner": "search-platform",
+            "last_deploy": "2026-09-27T02:30:00Z"
+          }
+        }
+      },
+      {
+        "run_id": "4aa8b677c39d",
+        "step": 1,
+        "event_type": "step_limit_exceeded",
+        "timestamp": 1790695592.001179,
+        "latency_ms": null,
+        "data": {
+          "steps_taken": 1,
+          "limit": 1
+        }
+      }
+    ],
+    "trace_path": "runs\\4aa8b677c39d.jsonl"
+  }
+}

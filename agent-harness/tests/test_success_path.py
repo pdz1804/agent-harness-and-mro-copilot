@@ -4,7 +4,7 @@ tool errors, no approval required."""
 from __future__ import annotations
 
 from agent_harness.approval import always_deny
-from agent_harness.llm_client import ScriptedLLMClient
+from agent_harness.llm_client import build_scripted_model
 from agent_harness.loop import AgentLoop
 
 
@@ -17,11 +17,11 @@ def test_success_path_completes_with_final_answer(tools, runs_dir, fast_config):
         },
         {"action": "final_answer", "final_answer": "Found the runbook; issue resolved."},
     ]
-    llm = ScriptedLLMClient(script)
+    llm = build_scripted_model(script)
     # approval callback should never be invoked on this path; always_deny
     # proves that (a denial here would abort the run if it were ever called).
     loop = AgentLoop(
-        llm_client=llm, tools=tools, config=fast_config, approval_callback=always_deny, runs_dir=runs_dir
+        model=llm, tools=tools, config=fast_config, approval_callback=always_deny, runs_dir=runs_dir
     )
 
     result = loop.run("Investigate auth-service outage")
@@ -48,8 +48,8 @@ def test_success_path_writes_jsonl_trace_file(tools, runs_dir, fast_config):
         },
         {"action": "final_answer", "final_answer": "auth-service is operational."},
     ]
-    llm = ScriptedLLMClient(script)
-    loop = AgentLoop(llm_client=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
+    llm = build_scripted_model(script)
+    loop = AgentLoop(model=llm, tools=tools, config=fast_config, runs_dir=runs_dir)
 
     result = loop.run("What is the status of auth-service?")
 
