@@ -140,3 +140,60 @@ def test_score_parity_with_offline_pipeline(client):
     offline_score = float(predict_scores(offline_pipeline, row_df)[0])
 
     assert service_score == pytest.approx(offline_score, abs=1e-9)
+
+
+def test_fleet_components_pages_through_the_whole_scored_fleet(client):
+    first = client.get("/fleet/components?limit=50").json()
+    assert first["total"] == first["n_scored"]
+    assert sum(first["counts"].values()) == first["n_scored"]
+    seen: list[str] = []
+    offset = 0
+    while offset < first["total"]:
+        page = client.get(f"/fleet/components?offset={offset}&limit=50").json()
+        seen += [i["component_id"] for i in page["items"]]
+        offset += 50
+    assert len(seen) == len(set(seen)) == first["n_scored"]
+    ranks = [i["rank"] for i in first["items"]]
+    assert ranks == list(range(1, len(ranks) + 1))
+    # Same ranking as /fleet/top-risk.
+    top = client.get("/fleet/top-risk?n=50").json()["items"]
+    assert [i["component_id"] for i in top] == [i["component_id"] for i in first["items"]]
+
+
+def test_fleet_components_bands_match_threshold_and_watch_floor(client):
+    body = client.get("/fleet/components?limit=1000").json()
+    for it in body["items"]:
+        if it["risk_score"] >= body["threshold"]:
+            expected = "alert"
+        elif it["risk_score"] >= body["watch_floor"]:
+            expected = "watch"
+        else:
+            expected = "normal"
+        assert it["band"] == expected
+        assert it["alert"] == (it["band"] == "alert")
+    for band in ("alert", "watch", "normal"):
+        page = client.get(f"/fleet/components?band={band}&limit=1000").json()
+        assert page["total"] == body["counts"][band]
+        assert all(i["band"] == band for i in page["items"])
+
+
+def test_fleet_components_filters_and_sorts(client):
+    body = client.get("/fleet/components?limit=1000").json()
+    ctype = body["component_types"][0]
+    typed = client.get(f"/fleet/components?component_type={ctype}&limit=1000").json()
+    assert typed["total"] > 0 and all(i["component_type"] == ctype for i in typed["items"])
+    needle = body["items"][0]["aircraft_id"]
+    hits = client.get(f"/fleet/components?q={needle.lower()}&limit=1000").json()["items"]
+    assert hits and all(needle in i["component_id"] for i in hits)
+    by_cycle = client.get("/fleet/components?sort=cycle&dir=asc&limit=1000").json()["items"]
+    cycles = [i["cycle"] for i in by_cycle]
+    assert cycles == sorted(cycles)
+    lowest = client.get("/fleet/components?dir=asc&limit=1").json()["items"][0]
+    assert lowest["rank"] == body["n_scored"]
+
+
+@pytest.mark.parametrize(
+    "qs", ["offset=-1", "limit=0", "limit=1001", "band=red", "sort=features", "dir=up"],
+)
+def test_fleet_components_rejects_bad_params(client, qs):
+    assert client.get(f"/fleet/components?{qs}").status_code == 422

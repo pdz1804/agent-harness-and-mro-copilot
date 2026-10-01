@@ -8,6 +8,9 @@ import "./styles/tokens.css";
 import "./styles/components.css";
 import "./styles/shell.css";
 import "./styles/features.css";
+import "./styles/polish.css";
+import "./styles/material.css";
+import { ToastProvider } from "./components/ui/feedback";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {
@@ -16,6 +19,8 @@ if (!rootEl) {
 
 ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
-    <App />
+    <ToastProvider>
+      <App />
+    </ToastProvider>
   </React.StrictMode>,
 );

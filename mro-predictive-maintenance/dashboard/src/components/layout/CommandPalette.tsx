@@ -1,30 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AREAS, hrefFor } from "../../lib/routes";
-import { ArrowRightIcon, EnterIcon, SearchIcon } from "../ui/icons";
+import { hrefFor } from "../../lib/routes";
+import { searchPalette, type PaletteEntry } from "../../lib/palette";
+import { ArrowRightIcon, BotIcon, EnterIcon, KeyboardIcon, SearchIcon, ZapIcon } from "../ui/icons";
 
-interface Entry {
-  id: string;
-  label: string;
-  area: string;
-  description: string;
-}
+export type PaletteAction = NonNullable<PaletteEntry["action"]>;
 
-const ENTRIES: Entry[] = AREAS.flatMap((a) =>
-  a.pages.map((p) => ({ id: p.id, label: p.title, area: a.label, description: p.description })),
-);
-
-/** Ctrl/Cmd+K page switcher. Navigation only: it never triggers an action,
- * so it cannot start a scan, approve anything or create a work order. */
-export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** Ctrl/Cmd+K: actions first (scan fleet, new copilot run, ask copilot),
+ * "open by id" when you type an alert number, WO id or component id, then
+ * every page. Actions that change data (Scan fleet) run through the same
+ * toast feedback as their on-page buttons; approvals are never in here. */
+export function CommandPalette({
+  open,
+  onClose,
+  onAction,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onAction: (action: PaletteAction, query: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return ENTRIES;
-    return ENTRIES.filter((e) => `${e.label} ${e.area} ${e.description}`.toLowerCase().includes(q));
-  }, [query]);
+  const results = useMemo(() => searchPalette(query), [query]);
 
   useEffect(() => {
     if (!open) return;
@@ -36,29 +35,47 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   }, [open]);
 
   useEffect(() => setIndex(0), [query]);
+  useEffect(() => {
+    listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [index]);
 
   if (!open) return null;
 
-  const go = (e: Entry | undefined) => {
+  const go = (e: PaletteEntry | undefined) => {
     if (!e) return;
-    window.location.hash = hrefFor(e.id).replace(/^#/, "");
     onClose();
+    if (e.kind === "action" && e.action) onAction(e.action, query.trim());
+    else if (e.path) window.location.hash = hrefFor(e.path).replace(/^#/, "");
   };
 
+  const icon = (e: PaletteEntry) =>
+    e.action === "scan" ? (
+      <ZapIcon />
+    ) : e.action === "shortcuts" ? (
+      <KeyboardIcon />
+    ) : e.action ? (
+      <BotIcon />
+    ) : e.kind === "open" ? (
+      <SearchIcon />
+    ) : (
+      <ArrowRightIcon />
+    );
+
+  let lastGroup = "";
   return (
     <div className="palette-scrim" onClick={onClose}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Jump to a page" onClick={(e) => e.stopPropagation()}>
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onClick={(e) => e.stopPropagation()}>
         <div className="palette-search">
           <SearchIcon />
           <input
             ref={inputRef}
             className="palette-input"
-            placeholder="Jump to a page…"
-            aria-label="Search pages"
+            placeholder="Type a command, an alert number, a WO or component id…"
+            aria-label="Search commands and pages"
             role="combobox"
             aria-expanded="true"
             aria-controls="palette-list"
-            aria-activedescendant={results[index] ? `pal-${results[index].id.replace("/", "-")}` : undefined}
+            aria-activedescendant={results[index] ? `pal-${index}` : undefined}
             autoComplete="off"
             spellCheck={false}
             value={query}
@@ -74,36 +91,46 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                 e.preventDefault();
                 go(results[index]);
               } else if (e.key === "Tab") {
-                // The input is the dialog's only control: keep focus inside it.
                 e.preventDefault();
               } else if (e.key === "Escape") {
                 e.preventDefault();
+                e.stopPropagation();
                 onClose();
               }
             }}
           />
           <kbd className="kbd">Esc</kbd>
         </div>
-        <ul className="palette-list" id="palette-list" role="listbox" aria-label="Pages">
-          {results.length === 0 && <li className="palette-empty">No page matches “{query}”.</li>}
-          {results.map((e, i) => (
-            <li
-              key={e.id}
-              id={`pal-${e.id.replace("/", "-")}`}
-              role="option"
-              aria-selected={i === index}
-              className="palette-item"
-              onMouseMove={() => setIndex(i)}
-              onClick={() => go(e)}
-            >
-              <span className="palette-area">{e.area}</span>
-              <span className="palette-main">
-                <span className="palette-label">{e.label}</span>
-                <span className="palette-desc">{e.description}</span>
-              </span>
-              {i === index ? <EnterIcon className="palette-go" /> : <ArrowRightIcon className="palette-go is-quiet" />}
-            </li>
-          ))}
+        <ul className="palette-list" id="palette-list" role="listbox" aria-label="Commands" ref={listRef}>
+          {results.length === 0 && (
+            <li className="palette-empty">Nothing matches “{query}”. Try a page name, “scan”, or an alert number.</li>
+          )}
+          {results.map((e, i) => {
+            const header = e.group !== lastGroup ? e.group : null;
+            lastGroup = e.group;
+            return (
+              <li key={e.id} role="presentation">
+                {header && <div className="palette-group">{header}</div>}
+                <div
+                  id={`pal-${i}`}
+                  role="option"
+                  aria-selected={i === index}
+                  className={`palette-item${e.kind === "action" ? " is-action" : ""}`}
+                  onMouseMove={() => setIndex(i)}
+                  onClick={() => go(e)}
+                >
+                  <span className="palette-ico" aria-hidden="true">
+                    {icon(e)}
+                  </span>
+                  <span className="palette-main">
+                    <span className="palette-label">{e.label}</span>
+                    <span className="palette-desc">{e.description}</span>
+                  </span>
+                  {i === index ? <EnterIcon className="palette-go" /> : null}
+                </div>
+              </li>
+            );
+          })}
         </ul>
         <div className="palette-foot">
           <span>
@@ -111,11 +138,69 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             <kbd className="kbd">↓</kbd> move
           </span>
           <span>
-            <kbd className="kbd">Enter</kbd> open
+            <kbd className="kbd">Enter</kbd> run
           </span>
           <span>
-            <kbd className="kbd">Esc</kbd> close
+            <kbd className="kbd">?</kbd> all shortcuts
           </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SHORTCUTS: { keys: string[]; label: string }[] = [
+  { keys: ["Ctrl", "K"], label: "Command palette: actions, pages, open by id" },
+  { keys: ["?"], label: "This shortcut sheet" },
+  { keys: ["Esc"], label: "Close the sheet, dialog or palette" },
+  { keys: ["←", "→"], label: "Previous / next item inside a detail sheet" },
+  { keys: ["K", "J"], label: "Same as ← / → (vim style)" },
+  { keys: ["Enter"], label: "Open the focused row" },
+  { keys: ["Space"], label: "Toggle the focused row checkbox" },
+];
+
+export function ShortcutSheet({ onClose }: { onClose: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "?") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      previous?.focus?.();
+    };
+  }, [onClose]);
+  return (
+    <div className="dialog-scrim" onClick={onClose}>
+      <div className="dialog is-wide" role="dialog" aria-modal="true" aria-labelledby="kbd-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="kbd-title" className="dialog-title">
+          Keyboard shortcuts
+        </h2>
+        <dl className="kbd-list">
+          {SHORTCUTS.map((s) => (
+            <div key={s.label} className="kbd-row">
+              <dt>
+                {s.keys.map((k) => (
+                  <kbd key={k} className="kbd">
+                    {k}
+                  </kbd>
+                ))}
+              </dt>
+              <dd>{s.label}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="dialog-foot">
+          <button ref={ref} type="button" className="btn" onClick={onClose}>
+            Done
+          </button>
         </div>
       </div>
     </div>

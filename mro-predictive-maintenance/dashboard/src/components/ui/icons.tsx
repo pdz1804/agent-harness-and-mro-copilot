@@ -11,7 +11,12 @@ import {
   ChartNoAxesColumn,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  Keyboard,
+  Link2,
+  Zap,
+  Undo2,
   CircleAlert,
   CircleCheck,
   CircleDashed,
@@ -79,3 +84,8 @@ export const FileIcon = wrap(FileText);
 export const ShieldIcon = wrap(ShieldCheck);
 export const CheckIcon = wrap(Check);
 export const CircleAlertIcon = wrap(CircleAlert);
+export const ChevronLeftIcon = wrap(ChevronLeft);
+export const KeyboardIcon = wrap(Keyboard);
+export const LinkIcon = wrap(Link2);
+export const ZapIcon = wrap(Zap);
+export const UndoIcon = wrap(Undo2);

@@ -244,11 +244,11 @@ export function DriftTimelineChart({
           )}
           <span>
             <i className="swatch" style={{ background: CHART.warnBand, boxShadow: `inset 0 0 0 1px ${CHART.warnBorder}` }} />
-            Warn above {warnAt}
+            Watch from {warnAt}
           </span>
           <span>
             <i className="swatch" style={{ background: CHART.badBand, boxShadow: `inset 0 0 0 1px ${CHART.badBorder}` }} />
-            Alert above {alertAt}
+            Drift from {alertAt}
           </span>
         </div>
         <Button size="sm" variant="ghost" aria-pressed={asTable} onClick={() => setAsTable((v) => !v)}>

@@ -9,12 +9,14 @@ export const STAGE_LABEL: Record<string, string> = {
   acknowledged: "Acknowledged",
   wo_raised: "WO raised",
   closed: "Closed",
+  dismissed: "Dismissed",
 };
 
 export function alertTone(status: string): Tone {
   if (status === "closed") return "good";
   if (status === "open") return "bad";
   if (status === "acknowledged") return "warn";
+  if (status === "dismissed") return "neutral";
   return "info";
 }
 
@@ -121,3 +123,13 @@ export const WO_OUTCOMES = [
     hint: "Closed without inspection. Excluded from precision and NFF.",
   },
 ] as const;
+
+/** Fleet risk band used in headers and chips: over the alert threshold is
+ * "Alert", at or above 50% is "Watch", anything lower is "Normal". */
+export type RiskBand = { label: "Alert" | "Watch" | "Normal"; tone: "bad" | "warn" | "good" };
+export const WATCH_FLOOR = 0.5;
+export function riskBand(score: number, overThreshold: boolean): RiskBand {
+  if (overThreshold) return { label: "Alert", tone: "bad" };
+  if (score >= WATCH_FLOOR) return { label: "Watch", tone: "warn" };
+  return { label: "Normal", tone: "good" };
+}

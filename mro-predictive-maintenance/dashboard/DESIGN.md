@@ -43,10 +43,10 @@ typography:
     fontSize: "0.75rem"
     weight: 500
 rounded:
-  xs: "4px"
   sm: "6px"
-  md: "8px"
-  lg: "12px"
+  md: "10px"
+  lg: "14px"
+  xl: "20px"
   full: "999px"
 spacing: [4, 8, 12, 16, 20, 24, 32, 40, 48]
 elevation:
@@ -97,11 +97,12 @@ Rules:
 
 ## Layout
 
-The shell is a grid with four rows:
-- top bar (56px, white, hairline);
-- sub-nav row (44px, white, segmented tabs with a sliding indicator);
-- `#app-main`, the only scroller;
-- bottom tab bar (phones only).
+The shell has one scroller, `#app-main`. The chrome floats over it, and `#app-main` pads itself by `--chrome-top`/`--chrome-bottom`, so content scrolls beneath the glass:
+- **1024px and up**: a left nav (236px) with one group per area. Each group has a small fold chevron. Fold state is persisted per acting user in `localStorage` (`mro.nav.collapsed.<user>`). The active group always stays open. Next to it sits the floating top bar (56px).
+- **Below 1024px**: the floating top bar with the primary areas, plus the sub-nav row (44px, segmented tabs with a sliding indicator).
+- **Below 768px**: the primary areas move to a floating bottom tab bar.
+
+Sticky children (table headers, bulk bar, doc TOC) use `top: 0`. The sticky view rectangle already excludes the scroller's padding, so they stop just under the chrome.
 
 The page column is max 1280px, with 28px top padding and 24px sides (16px on phones). Section gap is 20px; spacing inside cards is 12–16px.
 
@@ -112,18 +113,29 @@ Responsive behaviour is structural: tables hide low-priority columns below 768px
 - **Cards** (panels, KPI cards, cockpit columns): white, 12px radius, `elevation.card`. No solid border; the first shadow layer *is* the hairline.
 - **Interactive cards** (KPI links, starters, choices, lanes) lift to `elevation.raised` and translateY(−1px) on hover.
 - **Floating** surfaces (sheets, palette, tooltips, jump pill) use `elevation.float`.
-- **Radii**: controls 8px; chips and tags 6px; pills (health, count badges) full.
+- **Radii** use one scale, and nothing is a sharp rectangle: 6 (kbd, code, tiny chips) · 10 (buttons, inputs, nav items) · 14 (cards, panels, toasts) · 20 (sheets, palette, dialogs) · pill. The only square corners are on edges that touch the viewport, such as the top of a bottom sheet.
+
+## Material and motion (`styles/material.css`)
+
+- **Glass is for floating layers only**: the top bar, sub-nav, bottom tab bar, palette, toasts (dark glass), composer and approval batch bar. Sheets use a near-solid variant (95%). Cards and tables never get glass.
+- Under `prefers-reduced-transparency: reduce`, or where `backdrop-filter` is not supported, every glass layer becomes solid.
+- **Sticky headers frost**. Table headers are translucent and blurred. The top bar strengthens its glass and gains a hairline once `#app-main` has scrolled more than 4px (`data-scrolled` on `.shell`).
+- **Scrollbars** are thin (10px gutter, 4px rounded thumb) and stay transparent until their panel is hovered or focused. The track is always transparent, so no scrollbar line runs down the page.
+- **Spring motion**: `--ease-spring` is a `linear()` curve with about 3% overshoot over 380ms. It drives sheets, the palette, dialogs, toasts, the tab indicator, the nav fold (grid-rows 0fr→1fr) and the chevrons. Without `linear()` support it falls back to ease-out.
 
 ## Components
 
 - **Buttons**: primary is cobalt with a 1px inner top highlight and a soft drop; secondary is white with an alpha ring and an xs shadow; ghost is text-only; plus danger. Sizes: sm 30px, md 36px, lg 40px. Focus: a 3px cobalt ring at 30% alpha plus 1px solid.
+- **Role-locked buttons**: a control disabled because of the acting identity (its title is a role reason such as "Viewer is read-only…" or "Only lead.engineer…") shows a lucide lock in place of its own icon. A control disabled by state (nothing selected, nothing to export) keeps its icon, so "not allowed" never looks like "not available".
+- **Bulk bar** (`BulkBar`): one selection toolbar for Alerts and Fleet. Count on the left, actions, Clear (Esc), and a hint on the right. Fleet selection survives paging.
 - **Chips**: 22px, 6px radius, soft tint, inset alpha ring, 12px lucide icon, 12px/500 text.
 - **KPI card**:
   - label: 12px muted, with an icon;
   - value: Geist 26px, counts up on load;
   - sub-line or delta chip;
   - optional sparkline, only from a real series (never a fabricated one).
-- **Data table**: 40px rows (44px on phones), sticky subtle header, alpha row dividers, hover tint, link cursor on rows, mono IDs in cobalt-ink.
+- **Data table**: 40px rows (44px on phones), sticky subtle header, alpha row dividers, hover tint, link cursor on rows, mono IDs in cobalt-ink. Long lists page on the server (Fleet: 20 per page, `page` in the URL). Below 768px the Fleet table becomes cards: id, band chip, aircraft type and cycle, and a full-width risk bar.
+- **Risk bands**: Alert (at/over the threshold, red), Watch (at/over 50%, amber), Normal (green). The band comes from the API (`band`), never recomputed with a different cut in the UI.
 - **Risk bar** (signature): 6px rounded track, rounded fill, 2px ink notch at the threshold, tabular value.
 - **Navigation**:
   - brand mark: an ink square with the lucide plane;

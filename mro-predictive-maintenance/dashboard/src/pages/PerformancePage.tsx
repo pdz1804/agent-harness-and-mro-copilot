@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ThresholdSweepChart } from "../components/ThresholdSweepChart";
 import { CHART } from "../components/charts/charts";
-import { Chip, PageHead, Panel } from "../components/ui/primitives";
+import { Chip, PageHead, Panel, StatBar } from "../components/ui/primitives";
 import { Segmented } from "../components/ui/widgets";
 import { EmptyState, LoadingRows, Notice, ServiceStatusBanner } from "../components/ui/states";
-import { getModelMetrics, getRegistryStatus } from "../lib/api";
+import { getModelCard, getModelMetrics, getRegistryStatus } from "../lib/api";
+import { confusionFrom, confusionTotals, type Confusion } from "../lib/confusion";
 import { useAsync } from "../hooks/useAsync";
-import { formatDecimal, formatPct } from "../lib/format";
+import { formatDecimal, formatNumber, formatPct } from "../lib/format";
 import { championVersion, compareVersions, comparisonSummary, isFragileThreshold, pickChallenger, versionNumber, type ComparisonRow } from "../lib/models";
 import { hrefFor } from "../lib/routes";
 import type { DashboardData, ModelResult } from "../types";
@@ -276,6 +277,62 @@ function CurveCard({ model, data }: { model: ModelResult; data: DashboardData })
   );
 }
 
+/** 2x2 confusion matrix from a stored evaluation artifact. */
+function ConfusionMatrix({ c, caption }: { c: Confusion; caption: string }) {
+  const t = confusionTotals(c);
+  const cell = (n: number, label: string, tone: "good" | "bad" | "plain") => (
+    <td className={`cm-cell is-${tone}`}>
+      <span className="cm-n tnum">{formatNumber(n)}</span>
+      <span className="cm-l">{label}</span>
+    </td>
+  );
+  return (
+    <div className="stack">
+      <table className="cm" aria-label={caption}>
+        <thead>
+          <tr>
+            <td />
+            <th scope="col">Predicted removal</th>
+            <th scope="col">Predicted none</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Actual removal</th>
+            {cell(c.tp, "true positive", "good")}
+            {cell(c.fn, "missed", c.fn > 0 ? "bad" : "plain")}
+          </tr>
+          <tr>
+            <th scope="row">Actual none</th>
+            {cell(c.fp, "false positive", c.fp > 0 ? "bad" : "plain")}
+            {cell(c.tn, "true negative", "plain")}
+          </tr>
+        </tbody>
+      </table>
+      <p className="muted">
+        {formatNumber(t.rows)} rows, {t.positives} real removals. Recall {t.recall === null ? "n/a" : formatPct(t.recall, 1)}, precision{" "}
+        {t.precision === null ? "n/a" : formatPct(t.precision, 1)}.
+      </p>
+    </div>
+  );
+}
+
+function DeployedConfusion() {
+  const card = useAsync(() => getModelCard(), []);
+  const c = confusionFrom(card.data?.test_at_threshold);
+  return (
+    <Panel
+      title={c ? `Confusion at ${formatPct(c.threshold, 2)}` : "Confusion at the served threshold"}
+      sub={card.data ? `${card.data.model_id}, held-out test split. From model_card.json.` : "From the stored model card."}
+    >
+      {card.error && <ServiceStatusBanner message={card.error} onRetry={card.reload} />}
+      {card.loading && !card.data && <LoadingRows rows={2} height={56} />}
+      {card.data && !c && <EmptyState title="No confusion counts stored">The model card has no test_at_threshold counts.</EmptyState>}
+      {c && <ConfusionMatrix c={c} caption="Confusion matrix of the deployed model on the test split" />}
+    </Panel>
+  );
+}
+
 function StressTest({ data }: { data: DashboardData }) {
   const report = data.realistic;
   if (!report) {
@@ -290,6 +347,7 @@ function StressTest({ data }: { data: DashboardData }) {
   const card = report.model_card;
   const at = card.test_at_threshold;
   const fragile = isFragileThreshold(card.threshold);
+  const stressConfusion = confusionFrom(at as unknown as Record<string, unknown>);
   return (
     <Panel
       title={card.model_id}
@@ -319,6 +377,7 @@ function StressTest({ data }: { data: DashboardData }) {
             A threshold this close to 0 means a small shift in the score distribution (drift, a new batch, a different seed) can swing which components alert. Treat it as fragile, not a stable tuned choice. The headline numbers elsewhere are the reported result.
           </Notice>
         )}
+        {stressConfusion && <ConfusionMatrix c={stressConfusion} caption="Confusion matrix of the stress-test model on its test split" />}
       </div>
     </Panel>
   );
@@ -327,10 +386,22 @@ function StressTest({ data }: { data: DashboardData }) {
 /** Performance: one view at a time so the page stays short. */
 export function PerformancePage({ data }: { data: DashboardData }) {
   const [view, setView] = useState<View>("head");
+  const primary = data.models.find((m) => m.is_primary) ?? data.models[0];
+  const caught = primary ? Math.round(primary.test_recall * primary.test_n_positive) : 0;
+  const falsePositives = primary ? primary.test_n_alerts - caught : 0;
   return (
     <div className="page">
       <PageHead
-        title="Performance"
+        title={
+          primary ? (
+            <span className="title-with-chips">
+              Performance
+              <Chip tone={primary.target_met ? "good" : "bad"}>{primary.target_met ? "Target met" : "Target missed"}</Chip>
+            </span>
+          ) : (
+            "Performance"
+          )
+        }
         description="Did it hit the target on held-out data? Head to head, registry versions, threshold curves, stress test."
         actions={
           <Segmented<View>
@@ -346,7 +417,23 @@ export function PerformancePage({ data }: { data: DashboardData }) {
           />
         }
       />
-      {view === "head" && <HeadToHead data={data} />}
+      {primary && (
+        <StatBar
+          label="Deployed model on the held-out test split"
+          items={[
+            { label: `Recall @ ${formatPct(primary.chosen_threshold, 2)}`, value: formatPct(primary.test_recall, 1), sub: `${caught} of ${primary.test_n_positive} removals caught` },
+            { label: "Alerts per 100", value: formatDecimal(primary.test_alerts_per_100, 2), sub: `${primary.test_n_alerts} alerts raised` },
+            { label: "False positives", value: String(falsePositives), sub: `precision ${formatPct(primary.test_precision, 1)}` },
+            { label: "PR-AUC", value: formatDecimal(primary.test_pr_auc, 3), sub: "test split" },
+          ]}
+        />
+      )}
+      {view === "head" && (
+        <>
+          <DeployedConfusion />
+          <HeadToHead data={data} />
+        </>
+      )}
       {view === "registry" && <Registry />}
       {view === "curves" && (
         <>

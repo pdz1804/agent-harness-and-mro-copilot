@@ -1,6 +1,7 @@
-import { useEffect, useId, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useEffect, useId, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Tone } from "../../lib/risk";
-import { AlertTriangleIcon, CheckCircleIcon, ChevronRightIcon, InfoIcon, OctagonIcon, RingIcon } from "./icons";
+import { isRoleLockReason } from "../../lib/identity";
+import { AlertTriangleIcon, CheckCircleIcon, ChevronRightIcon, InfoIcon, LockIcon, OctagonIcon, RingIcon } from "./icons";
 
 /* ---- Button: primary (one per view) / secondary / ghost / danger / link --- */
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "link";
@@ -28,33 +29,43 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "typ
   type?: "button" | "submit";
 }
 
-export function Button({
-  variant = "secondary",
-  size = "md",
-  loading,
-  iconOnly,
-  className,
-  disabled,
-  type = "button",
-  children,
-  title,
-  "aria-label": ariaLabel,
-  ...rest
-}: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "secondary",
+    size = "md",
+    loading,
+    iconOnly,
+    className,
+    disabled,
+    type = "button",
+    children,
+    title,
+    "aria-label": ariaLabel,
+    ...rest
+  },
+  ref,
+) {
+  // Disabled because of the acting role (not because of state): show a lock
+  // in place of the button's own leading icon; the title says who can.
+  const locked = !!disabled && !loading && isRoleLockReason(title);
   return (
     <button
+      ref={ref}
       type={type}
-      className={btnClass(variant, size, className, iconOnly)}
+      className={btnClass(variant, size, [className, locked ? "is-locked" : ""].filter(Boolean).join(" "), iconOnly)}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       aria-label={ariaLabel}
       title={title ?? (iconOnly ? ariaLabel : undefined)}
       {...rest}
     >
+      {loading && <span className="btn-spinner" aria-hidden="true" />}
+      {locked && <LockIcon className="btn-lock" />}
       {children}
+      {locked && <span className="sr-only"> (locked for your role)</span>}
     </button>
   );
-}
+});
 
 interface ButtonLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   variant?: Variant;
@@ -163,19 +174,30 @@ export interface StatItem {
 
 const NUMERIC = /^(-?\d+(?:\.\d+)?)(%?)$/;
 
-/** Ticks a plain number (or "12.5%") up from zero once, 500ms, ease-out.
- * Anything else renders as-is; reduced motion renders the final value. */
+/** Ticks a plain number (or "12.5%") to its value, 500ms ease-out: from
+ * zero on first render, then from the previous value on every change, with a
+ * brief highlight so a live update is noticed. Anything else renders as-is;
+ * reduced motion renders the final value. */
 export function CountUp({ value }: { value: ReactNode }) {
   const text = typeof value === "number" ? String(value) : typeof value === "string" ? value : null;
   const match = text ? NUMERIC.exec(text) : null;
   const target = match ? Number(match[1]) : 0;
   const decimals = match && match[1].includes(".") ? match[1].split(".")[1].length : 0;
   const [shown, setShown] = useState<number | null>(null);
+  const [flash, setFlash] = useState(false);
+  const prev = useRef<number | null>(null);
 
   useEffect(() => {
     if (!match) return;
+    const from = prev.current ?? 0;
+    const changed = prev.current !== null && prev.current !== target;
+    prev.current = target;
     const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce || target === 0) {
+    if (changed) {
+      setFlash(true);
+      setTimeout(() => setFlash(false), 900);
+    }
+    if (reduce || from === target) {
       setShown(target);
       return;
     }
@@ -184,7 +206,7 @@ export function CountUp({ value }: { value: ReactNode }) {
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / 500);
       const eased = 1 - Math.pow(1 - t, 3);
-      setShown(target * eased);
+      setShown(from + (target - from) * eased);
       if (t < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -195,13 +217,13 @@ export function CountUp({ value }: { value: ReactNode }) {
   if (!match) return <>{value}</>;
   const n = shown ?? 0;
   return (
-    <>
+    <span className={flash ? "num-flash" : undefined}>
       <span aria-hidden="true">
         {n.toFixed(decimals)}
         {match[2]}
       </span>
       <span className="sr-only">{text}</span>
-    </>
+    </span>
   );
 }
 

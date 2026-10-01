@@ -197,6 +197,50 @@ export interface FleetRiskResponse {
   items: FleetRiskItem[];
 }
 
+export type FleetBand = "alert" | "watch" | "normal";
+
+/** One row of `GET /fleet/components` (no feature payload). */
+export interface FleetListItem {
+  rank: number;
+  component_id: string;
+  aircraft_id: string;
+  aircraft_type: string | null;
+  component_type: string;
+  cycle: number;
+  snapshot_date: string;
+  risk_score: number;
+  alert: boolean;
+  band: FleetBand;
+  true_label: number;
+}
+
+export interface FleetPageResponse {
+  model_id: string;
+  threshold: number;
+  watch_floor: number;
+  n_scored: number;
+  /** Rows matching the filters, before paging. */
+  total: number;
+  offset: number;
+  limit: number;
+  /** Whole fleet per band, independent of the filters. */
+  counts: Record<FleetBand, number>;
+  component_types: string[];
+  items: FleetListItem[];
+}
+
+/** One entry of `GET /ops/activity`; `count` > 1 is a collapsed burst. */
+export interface ActivityItem {
+  at: string;
+  kind: "alert" | "work_order" | "copilot" | "approval" | "drift" | string;
+  title: string;
+  detail: string;
+  actor: string | null;
+  href: string | null;
+  group: string;
+  count: number;
+}
+
 export interface HealthResponse {
   status: string;
   model_id: string | null;

@@ -56,3 +56,9 @@ export function workOrderIdFromResult(result: CopilotMessage | null): string | n
   }
   return null;
 }
+
+/** "awaiting_input" -> "Awaiting input", "completed" -> "Completed". */
+export function runStatusLabel(status: string): string {
+  const words = status.replace(/_/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : status;
+}

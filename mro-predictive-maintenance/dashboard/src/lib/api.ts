@@ -3,6 +3,7 @@
 // Base URL is overridable via VITE_SERVICE_BASE_URL (e.g. a deployed service
 // URL); defaults to the documented local port, 8100.
 import type {
+  ActivityItem,
   AircraftIndexRow,
   AircraftOverview,
   Alert,
@@ -18,6 +19,7 @@ import type {
   CopilotRunDetail,
   CopilotRunSummary,
   DriftReport,
+  FleetPageResponse,
   FleetRiskResponse,
   FleetScanResult,
   HealthResponse,
@@ -70,6 +72,30 @@ export function getModelCard(): Promise<ModelCardResponse> {
 
 export function getFleetTopRisk(n: number): Promise<FleetRiskResponse> {
   return request<FleetRiskResponse>(`/fleet/top-risk?n=${n}`);
+}
+
+export interface FleetPageQuery {
+  offset?: number;
+  limit?: number;
+  band?: string;
+  componentType?: string;
+  q?: string;
+  sort?: string;
+  dir?: "asc" | "desc";
+}
+
+/** The whole scored fleet, filtered, sorted and paginated server-side. */
+export function getFleetPage(query: FleetPageQuery = {}): Promise<FleetPageResponse> {
+  const params = new URLSearchParams();
+  if (query.offset) params.set("offset", String(query.offset));
+  if (query.limit) params.set("limit", String(query.limit));
+  if (query.band && query.band !== "all") params.set("band", query.band);
+  if (query.componentType && query.componentType !== "all") params.set("component_type", query.componentType);
+  if (query.q) params.set("q", query.q);
+  if (query.sort) params.set("sort", query.sort);
+  if (query.dir) params.set("dir", query.dir);
+  const qs = params.toString();
+  return request<FleetPageResponse>(`/fleet/components${qs ? `?${qs}` : ""}`);
 }
 
 /** One scored component (with features). 404 when it is not in the scored fleet. */
@@ -193,6 +219,10 @@ export function listAircraft(): Promise<AircraftIndexRow[]> {
 
 export function getComponentHistory(componentId: string): Promise<ComponentHistory> {
   return request<ComponentHistory>(`/ops/components/${encodeURIComponent(componentId)}/history`);
+}
+
+export function getActivity(limit = 20): Promise<ActivityItem[]> {
+  return request<ActivityItem[]>(`/ops/activity?limit=${limit}`);
 }
 
 export function getReliability(): Promise<ReliabilityKpis> {

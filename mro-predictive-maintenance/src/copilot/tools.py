@@ -70,6 +70,10 @@ class CopilotDeps:
     kb_index: object
     actor: str
     run_id: str
+    # The alert this run was started for (``copilot_runs.alert_id``), if any.
+    # A work order the run raises for that alert's component is linked to it,
+    # so the alert moves to ``wo_raised`` exactly as a manual work order does.
+    alert_id: Optional[int] = None
     cited_doc_ids: set[str] = field(default_factory=set)
     numbers_seen: set[str] = field(default_factory=set)
     retry_count: int = 0
@@ -397,8 +401,18 @@ def create_work_order(ctx: RunContext[CopilotDeps], aircraft_id: str, component_
             conn, aircraft_id=aircraft_id, component_id=component_id,
             task_ref=task_ref, priority=priority, created_by="copilot",
             approved_by=ctx.deps.actor, notes=justification,
+            alert_id=_run_alert_for(conn, ctx.deps.alert_id, component_id),
         )
     return result
+
+
+def _run_alert_for(conn, alert_id: Optional[int], component_id: str) -> Optional[int]:
+    """The run's alert id, but only when that alert is for ``component_id``
+    (a run started for one alert may still raise work on another part)."""
+    if alert_id is None:
+        return None
+    row = conn.execute(select(alerts.c.component_id).where(alerts.c.id == alert_id)).first()
+    return alert_id if row is not None and row[0] == component_id else None
 
 
 def recommend_aircraft_status(ctx: RunContext[CopilotDeps], aircraft_id: str, status: str,

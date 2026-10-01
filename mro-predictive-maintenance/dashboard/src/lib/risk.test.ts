@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WO_OUTCOMES, ageLabel, asLiveOutcomes, componentTypeFromId, parseTopFactors, riskTone } from "./risk";
+import { WO_OUTCOMES, ageLabel, asLiveOutcomes, componentTypeFromId, parseTopFactors, riskBand, riskTone } from "./risk";
 
 describe("risk helpers", () => {
   it("parses persisted SHAP factors and survives garbage", () => {
@@ -38,5 +38,13 @@ describe("risk helpers", () => {
     expect(o?.confirmed_failure).toBe(2);
     expect(o?.not_inspected).toBe(0);
     expect(o?.nff_rate).toBeNull();
+  });
+});
+
+describe("riskBand", () => {
+  it("bands by threshold first, then the 50% watch floor", () => {
+    expect(riskBand(0.97, true).label).toBe("Alert");
+    expect(riskBand(0.5, false)).toEqual({ label: "Watch", tone: "warn" });
+    expect(riskBand(0.49, false)).toEqual({ label: "Normal", tone: "good" });
   });
 });

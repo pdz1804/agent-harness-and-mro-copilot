@@ -157,3 +157,82 @@ def test_reliability_endpoint(client):
     assert resp.status_code == 200
     body = resp.json()
     assert "quarterly" in body and "live_outcomes" in body
+
+
+VIEWER = {"X-User": "viewer"}
+
+
+def test_viewer_cannot_transition_alert(client):
+    alert_id = _first_alert_id(client)
+    resp = client.post(f"/ops/alerts/{alert_id}/transition", json={"action": "acknowledge"}, headers=VIEWER)
+    assert resp.status_code == 403
+    assert "read-only" in resp.json()["detail"]
+    # Nothing changed: the alert is still open and no event was written.
+    after = client.get(f"/ops/alerts/{alert_id}").json()
+    assert after["status"] == "open"
+
+
+def test_viewer_cannot_create_or_close_work_orders_or_set_status(client):
+    alert_id = _first_alert_id(client)
+    alert = client.get(f"/ops/alerts/{alert_id}").json()
+    body = {"aircraft_id": alert["aircraft_id"], "component_id": alert["component_id"],
+            "alert_id": alert_id, "approved_by": "viewer"}
+    assert client.post("/ops/work-orders", json=body, headers=VIEWER).status_code == 403
+    assert client.get("/ops/work-orders").json() == []
+
+    body["approved_by"] = "lead.engineer"
+    wo_id = client.post("/ops/work-orders", json=body, headers={"X-User": "lead.engineer"}).json()["id"]
+    resp = client.post(f"/ops/work-orders/{wo_id}/close", json={"outcome": "confirmed_failure"}, headers=VIEWER)
+    assert resp.status_code == 403
+
+    resp = client.post(f"/ops/aircraft/{alert['aircraft_id']}/status",
+                       json={"status": "AOG", "reason": "x"}, headers=VIEWER)
+    assert resp.status_code == 403
+
+
+def test_viewer_can_still_read(client):
+    assert client.get("/ops/alerts", headers=VIEWER).status_code == 200
+    assert client.get("/ops/work-orders", headers=VIEWER).status_code == 200
+
+
+def test_viewer_cannot_trigger_fleet_scans_or_toggle_automations(client):
+    assert client.post("/ops/fleet-scan", json={}, headers=VIEWER).status_code == 403
+    assert client.post("/copilot/fleet-scan", json={}, headers=VIEWER).status_code == 403
+    assert client.patch("/copilot/automations/1", json={"enabled": False}, headers=VIEWER).status_code == 403
+
+
+def test_activity_feed_reflects_real_events_and_collapses_bursts(client):
+    assert client.get("/ops/activity").json() == []
+    scan = client.post("/ops/fleet-scan", json={"window_days": 30}).json()
+    n_new = len(scan["new_alerts"])
+    assert n_new >= 2
+    feed = client.get("/ops/activity").json()
+    assert "drift" in [i["kind"] for i in feed]  # the scan persists a drift snapshot
+    opened = [i for i in feed if i["kind"] == "alert"]
+    assert len(opened) == 1 and opened[0]["count"] == n_new
+    assert opened[0]["title"] == f"{n_new} alerts opened"
+
+    alert_id = scan["new_alerts"][0]
+    client.post(f"/ops/alerts/{alert_id}/transition", json={"action": "acknowledge"}, headers={"X-User": "planner"})
+    newest = client.get("/ops/activity").json()[0]
+    assert newest["title"] == f"Alert #{alert_id} acknowledged"
+    assert newest["actor"] == "planner" and newest["href"] == f"ops/alerts/{alert_id}"
+
+    alert = client.get(f"/ops/alerts/{alert_id}").json()
+    wo = client.post(
+        "/ops/work-orders",
+        json={
+            "aircraft_id": alert["aircraft_id"], "component_id": alert["component_id"],
+            "approved_by": "lead.engineer", "alert_id": alert_id,
+        },
+    ).json()
+    feed = client.get("/ops/activity").json()
+    assert f"{wo['id']} created" in [i["title"] for i in feed]
+    times = [i["at"] for i in feed]
+    assert times == sorted(times, reverse=True)
+
+
+def test_activity_feed_validates_limit(client):
+    assert client.get("/ops/activity?limit=0").status_code == 422
+    assert client.get("/ops/activity?limit=101").status_code == 422
+    assert client.get("/ops/activity?limit=2").status_code == 200

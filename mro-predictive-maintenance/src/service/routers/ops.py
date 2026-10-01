@@ -22,9 +22,11 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.engine import Connection
 
 from src import config
+from src.ops import activity as ops_activity
 from src.ops import kpis as ops_kpis
 from src.ops import service as ops_service
 from src.ops.db import alert_events, alerts, aircraft_status, predictions, work_orders
+from src.copilot.identity import can_write
 from src.service.routers import monitoring as monitoring_router
 
 router = APIRouter(prefix="/ops", tags=["ops"])
@@ -97,8 +99,10 @@ class AircraftStatusRequest(BaseModel):
 
 @router.post("/fleet-scan")
 def fleet_scan(
-    body: FleetScanRequest = FleetScanRequest(), conn: Connection = Depends(get_conn),
+    body: FleetScanRequest = FleetScanRequest(), x_user: str = Header(default="engineer.demo"),
+    conn: Connection = Depends(get_conn),
 ):
+    require_writer(x_user)
     store = _current_store()
     if not store.loaded:
         raise HTTPException(status_code=503, detail="model not loaded; cannot fleet-scan")
@@ -142,6 +146,15 @@ def _full_alert(conn: Connection, alert_id: int) -> dict:
     return alert
 
 
+def require_writer(x_user: str) -> None:
+    """Reject state changes from a read-only identity (the seeded ``viewer``).
+
+    Same demo-grade identity model as the copilot resolve endpoint: the role
+    comes from ``src.copilot.identity`` via the ``X-User`` header."""
+    if not can_write(x_user):
+        raise HTTPException(status_code=403, detail=f"'{x_user}' is a read-only viewer and cannot change operational data")
+
+
 @router.get("/alerts/{alert_id}")
 def get_alert(alert_id: int, conn: Connection = Depends(get_conn)):
     return _full_alert(conn, alert_id)
@@ -153,6 +166,7 @@ def transition_alert(
     x_user: str = Header(default="engineer.demo"),
     conn: Connection = Depends(get_conn),
 ):
+    require_writer(x_user)
     _alert_or_404(conn, alert_id)
     try:
         ops_service.transition_alert(conn, alert_id, body.action, actor=x_user, note=body.note)
@@ -180,6 +194,7 @@ def create_work_order(
     body: WorkOrderCreateRequest, x_user: str = Header(default="engineer.demo"),
     conn: Connection = Depends(get_conn),
 ):
+    require_writer(x_user)
     try:
         return ops_service.create_work_order(
             conn,
@@ -199,7 +214,11 @@ def create_work_order(
 
 
 @router.post("/work-orders/{wo_id}/close")
-def close_work_order(wo_id: str, body: WorkOrderCloseRequest, conn: Connection = Depends(get_conn)):
+def close_work_order(
+    wo_id: str, body: WorkOrderCloseRequest, x_user: str = Header(default="engineer.demo"),
+    conn: Connection = Depends(get_conn),
+):
+    require_writer(x_user)
     try:
         return ops_service.close_work_order(conn, wo_id, body.outcome, body.notes)
     except ops_service.InvalidTransition as exc:
@@ -213,6 +232,7 @@ def set_aircraft_status(
     aircraft_id: str, body: AircraftStatusRequest, x_user: str = Header(default="engineer.demo"),
     conn: Connection = Depends(get_conn),
 ):
+    require_writer(x_user)
     try:
         return ops_service.set_aircraft_status(
             conn, aircraft_id, body.status, updated_by=x_user,
@@ -362,6 +382,15 @@ def get_aircraft(aircraft_id: str, conn: Connection = Depends(get_conn)):
         "open_alerts": [dict(a) for a in open_alerts],
         "open_work_orders": [dict(w) for w in open_wos],
     }
+
+
+@router.get("/activity")
+def activity(limit: int = 20, conn: Connection = Depends(get_conn)):
+    """Newest-first feed of real ops events (alert lifecycle, work orders,
+    copilot runs and resolved approvals, drift snapshots); bursts collapsed."""
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    return ops_activity.activity_feed(conn, limit=limit)
 
 
 @router.get("/reliability")

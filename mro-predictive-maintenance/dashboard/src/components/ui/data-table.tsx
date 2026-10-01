@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { ariaSort, nextSort, shouldIgnoreRowClick, sortRows, type SortDir, type SortState, type SortValue } from "../../lib/table-sort";
 import { ArrowDownIcon, ArrowUpIcon, SortIcon } from "./icons";
 import { EmptyState } from "./states";
@@ -43,6 +43,21 @@ interface DataTableProps<T> {
   loading?: boolean;
   skeletonRows?: number;
   footer?: ReactNode;
+  /** Controlled sort (e.g. persisted in the URL). */
+  sort?: SortState | null;
+  onSortChange?: (s: SortState | null) => void;
+  /** Multi-select: checkbox column; `canSelect` limits which rows qualify. */
+  selection?: ReadonlySet<string>;
+  onSelectionChange?: (next: Set<string>) => void;
+  canSelect?: (row: T) => boolean;
+  /** Actions revealed on row hover / focus (last column). */
+  rowActions?: (row: T) => ReactNode;
+  /** Rows to highlight briefly (just changed). */
+  flashKeys?: ReadonlySet<string>;
+  /** Rows in a pending mutation (shimmer). */
+  pendingKeys?: ReadonlySet<string>;
+  /** Report the rendered order (sheet prev/next follows what you see). */
+  onOrderChange?: (keys: string[]) => void;
 }
 
 /** The one table for the product: sticky header (to the page scroller),
@@ -61,8 +76,23 @@ export function DataTable<T>({
   loading,
   skeletonRows = 8,
   footer,
+  sort: sortProp,
+  onSortChange,
+  selection,
+  onSelectionChange,
+  canSelect,
+  rowActions,
+  flashKeys,
+  pendingKeys,
+  onOrderChange,
 }: DataTableProps<T>) {
-  const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
+  const [sortLocal, setSortLocal] = useState<SortState | null>(defaultSort ?? null);
+  const sort = sortProp !== undefined ? sortProp ?? defaultSort ?? null : sortLocal;
+  const setSort = (fn: (s: SortState | null) => SortState | null) => {
+    const next = fn(sort);
+    if (onSortChange) onSortChange(next);
+    else setSortLocal(next);
+  };
 
   const sorted = useMemo(() => {
     if (!sort) return rows;
@@ -70,6 +100,23 @@ export function DataTable<T>({
     if (!col?.sortValue) return rows;
     return sortRows(rows, col.sortValue, sort.dir);
   }, [rows, columns, sort]);
+
+  const orderKey = sorted.map(rowKey).join("|");
+  useEffect(() => {
+    onOrderChange?.(orderKey ? orderKey.split("|") : []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderKey]);
+
+  const selectable = !!onSelectionChange;
+  const eligible = selectable ? sorted.filter((r) => canSelect?.(r) ?? true).map(rowKey) : [];
+  const allOn = eligible.length > 0 && eligible.every((k) => selection?.has(k));
+  const someOn = eligible.some((k) => selection?.has(k));
+  const toggle = (key: string) => {
+    const next = new Set(selection ?? []);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onSelectionChange?.(next);
+  };
 
   const cls = (c: Column<T>) =>
     [c.numeric ? "num" : "", c.hideSm ? "hide-sm" : "", c.hideMd ? "hide-md" : "", c.fit ? "fit" : "", c.grow ? "grow" : "", c.truncate ? "trunc" : ""]
@@ -100,6 +147,21 @@ export function DataTable<T>({
       <table className="dt" aria-label={label} aria-busy={loading || undefined}>
         <thead>
           <tr>
+            {selectable && (
+              <th scope="col" className="fit dt-check">
+                <input
+                  type="checkbox"
+                  className="row-check"
+                  aria-label="Select all eligible rows"
+                  checked={allOn}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someOn && !allOn;
+                  }}
+                  disabled={eligible.length === 0}
+                  onChange={() => onSelectionChange?.(allOn ? new Set() : new Set(eligible))}
+                />
+              </th>
+            )}
             {columns.map((c) => {
               const sortable = !!c.sortValue;
               return (
@@ -125,35 +187,71 @@ export function DataTable<T>({
                 </th>
               );
             })}
+            {rowActions && (
+              <th scope="col" className="fit dt-actions-h">
+                <span className="sr-only">Row actions</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
           {loading &&
             Array.from({ length: skeletonRows }, (_, i) => (
               <tr key={`sk-${i}`} className="dt-skel" aria-hidden="true">
+                {selectable && <td className="fit dt-check" />}
                 {columns.map((c) => (
                   <td key={c.key} className={cls(c)}>
                     <div className="skeleton" style={{ height: 12, width: c.numeric ? "50%" : "75%", marginLeft: c.numeric ? "auto" : 0 }} />
                   </td>
                 ))}
+                {rowActions && <td className="fit" />}
               </tr>
             ))}
           {!loading &&
             sorted.map((row, i) => {
               const key = rowKey(row);
+              const rowCls = [
+                clickable ? "is-link" : "",
+                selectedKey === key ? "is-selected" : "",
+                selection?.has(key) ? "is-checked" : "",
+                flashKeys?.has(key) ? "is-flash" : "",
+                pendingKeys?.has(key) ? "is-pending" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              const rowSelectable = selectable && (canSelect?.(row) ?? true);
               return (
                 <tr
                   key={key}
-                  className={`${clickable ? "is-link" : ""}${selectedKey === key ? " is-selected" : ""}`}
+                  style={i < 12 ? ({ "--i": i } as CSSProperties) : undefined}
+                  className={rowCls}
                   onClick={clickable ? (e) => onClick(e, row) : undefined}
                   onKeyDown={clickable ? (e) => onKey(e, row) : undefined}
                   aria-selected={selectedKey === key ? true : undefined}
                 >
+                  {selectable && (
+                    <td className="fit dt-check" data-row-ignore>
+                      {rowSelectable && (
+                        <input
+                          type="checkbox"
+                          className="row-check"
+                          aria-label={`Select ${key}`}
+                          checked={selection?.has(key) ?? false}
+                          onChange={() => toggle(key)}
+                        />
+                      )}
+                    </td>
+                  )}
                   {columns.map((c) => (
                     <td key={c.key} className={cls(c)}>
                       {c.render(row, i)}
                     </td>
                   ))}
+                  {rowActions && (
+                    <td className="fit dt-actions">
+                      <div className="dt-actions-inner">{rowActions(row)}</div>
+                    </td>
+                  )}
                 </tr>
               );
             })}

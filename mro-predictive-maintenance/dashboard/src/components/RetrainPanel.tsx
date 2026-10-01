@@ -1,12 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getRetrainJob, startRetrain } from "../lib/api";
-import { IDENTITY_CHANGE_EVENT, getCurrentUser } from "../lib/identity";
+import { useState } from "react";
 import { formatDecimal, formatPct } from "../lib/format";
-import { canStartRetrain, extractRunId, gateVerdict, isTerminal, nextPollDelay, retrainMetricRows, RETRAIN_USER } from "../lib/retrain";
+import { gateVerdict, retrainMetricRows, RETRAIN_USER } from "../lib/retrain";
+import type { RetrainState } from "../hooks/useRetrainJob";
 import { Button, Chip, Panel } from "./ui/primitives";
 import { Notice, ServiceStatusBanner } from "./ui/states";
-import { LockIcon } from "./ui/icons";
-import type { RetrainJob } from "../types";
 
 function fmtMetric(v: number | null, kind: "pct" | "dec"): string {
   if (v === null) return "none recorded";
@@ -17,89 +14,18 @@ function fmtMetric(v: number | null, kind: "pct" | "dec"): string {
  * the button explains why it is disabled for everyone else). The job is
  * polled until it ends and then read honestly: gate decision, what was and
  * was not promoted, the job's own note, and that the served model is
- * unchanged. A retrain rewrites reports/realistic, so it needs a confirm. */
-export function RetrainPanel() {
-  const [user, setUser] = useState(getCurrentUser());
+ * unchanged. A retrain rewrites reports/realistic, so it needs a confirm.
+ * The job state lives in `useRetrainJob` so the page header can start and
+ * follow the same run. */
+export function RetrainPanel({ retrain }: { retrain: RetrainState }) {
+  const { user, allowed, job, error, starting, running, elapsed } = retrain;
   const [promote, setPromote] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [job, setJob] = useState<RetrainJob | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const pollRef = useRef<number | null>(null);
-  const attemptRef = useRef(0);
-
-  useEffect(() => {
-    const on = () => setUser(getCurrentUser());
-    window.addEventListener(IDENTITY_CHANGE_EVENT, on);
-    return () => window.removeEventListener(IDENTITY_CHANGE_EVENT, on);
-  }, []);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current !== null) window.clearTimeout(pollRef.current);
-    pollRef.current = null;
-  }, []);
-
-  const poll = useCallback(
-    (runId: string) => {
-      stopPolling();
-      pollRef.current = window.setTimeout(async () => {
-        try {
-          const next = await getRetrainJob(runId);
-          setJob(next);
-          if (!isTerminal(next.status)) {
-            attemptRef.current += 1;
-            poll(runId);
-          }
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      }, nextPollDelay(attemptRef.current));
-    },
-    [stopPolling],
-  );
-
-  useEffect(() => stopPolling, [stopPolling]);
-
-  const running = !!job && !isTerminal(job.status);
-  useEffect(() => {
-    if (!running) return;
-    const t = window.setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => window.clearInterval(t);
-  }, [running]);
-
-  const start = async () => {
-    setStarting(true);
-    setError(null);
+  const start = () => {
     setConfirming(false);
-    setElapsed(0);
-    attemptRef.current = 0;
-    try {
-      const j = await startRetrain({ promote_if_better: promote });
-      setJob(j);
-      poll(j.run_id);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/^409\b/.test(msg)) {
-        const id = extractRunId(msg);
-        if (id) {
-          setJob({ run_id: id, status: "running" });
-          setError("A retrain is already running. Following that run instead.");
-          poll(id);
-        } else {
-          setError("A retrain is already running. Try again when it finishes.");
-        }
-      } else if (/^403\b/.test(msg)) {
-        setError(`Only ${RETRAIN_USER} can start a retrain. You are acting as ${getCurrentUser()}.`);
-      } else {
-        setError(msg);
-      }
-    } finally {
-      setStarting(false);
-    }
+    void retrain.start(promote);
   };
 
-  const allowed = canStartRetrain(user);
   const verdict = job ? gateVerdict(job) : null;
   const rows = job ? retrainMetricRows(job) : [];
   const result = job?.result;
@@ -118,7 +44,6 @@ export function RetrainPanel() {
             title={!allowed ? `Only ${RETRAIN_USER} can start a retrain` : undefined}
             onClick={() => setConfirming(true)}
           >
-            {!allowed && <LockIcon />}
             {running ? "Retraining…" : "Run retrain"}
           </Button>
         )

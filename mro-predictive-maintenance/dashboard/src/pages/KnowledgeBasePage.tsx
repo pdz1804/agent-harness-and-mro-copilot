@@ -75,7 +75,12 @@ export function KnowledgeBasePage({ docId }: { docId?: string }) {
   return (
     <div className="page">
       <PageHead
-        title="Knowledge base"
+        title={
+          <span className="title-with-chips">
+            Knowledge base
+            <Chip tone="warn">Fictional KB · not for real maintenance</Chip>
+          </span>
+        }
         description="Hybrid (BM25 + TF-IDF) search over AMM and MEL documents, with a full document viewer."
         actions={
           <Segmented<View>

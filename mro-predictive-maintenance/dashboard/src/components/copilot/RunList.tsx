@@ -1,5 +1,7 @@
 import type { CopilotRunSummary } from "../../types";
 import { Chip } from "../ui/primitives";
+import { runStatusLabel } from "../../lib/run-status";
+import { matchesQuery } from "../../lib/row-diff";
 
 interface RunListProps {
   runs: CopilotRunSummary[];
@@ -9,6 +11,8 @@ interface RunListProps {
    * rows are legacy-cancelled (`GET /copilot/runs/{id}` legacy view). Never
    * inferred from a missing pending item -- a run mid-resume has none either. */
   staleRunIds: Set<string>;
+  /** A search is active (changes the empty message). */
+  filtered?: boolean;
 }
 
 function statusTone(status: string, isStaleRun: boolean): string {
@@ -21,8 +25,8 @@ function statusTone(status: string, isStaleRun: boolean): string {
 }
 
 function statusLabel(status: string, isStaleRun: boolean): string {
-  if (isStaleRun) return "stale – cancelled";
-  return status;
+  if (isStaleRun) return "Stale, cancelled";
+  return runStatusLabel(status);
 }
 
 /** First non-empty line of the run's prompt; falls back to the trigger. */
@@ -39,11 +43,20 @@ export function runTime(iso: string, now: Date = new Date()): string {
   return d.toDateString() === now.toDateString() ? clock : `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${clock}`;
 }
 
+/** Run search: every word must appear in the prompt, id, status or trigger. */
+export function filterRuns<T extends Pick<CopilotRunSummary, "id" | "status" | "trigger" | "user_prompt">>(runs: T[], q: string): T[] {
+  return runs.filter((r) => matchesQuery([r.user_prompt, r.id, r.status, runStatusLabel(r.status), r.trigger], q));
+}
+
 /** Left column of the Copilot page: the run list. */
-export function RunList({ runs, activeRunId, onSelect, staleRunIds }: RunListProps) {
+export function RunList({ runs, activeRunId, onSelect, staleRunIds, filtered }: RunListProps) {
   return (
     <div className="runs" role="list" aria-label="Copilot runs">
-      {runs.length === 0 && <p className="muted" style={{ padding: 16 }}>No runs yet. Ask something in the composer to start one.</p>}
+      {runs.length === 0 && (
+        <p className="muted" style={{ padding: 16 }}>
+          {filtered ? "No run matches the search." : "No runs yet. Ask something in the composer to start one."}
+        </p>
+      )}
       {runs.map((r) => {
         const isStaleRun = staleRunIds.has(r.id);
         const tone = statusTone(r.status, isStaleRun);

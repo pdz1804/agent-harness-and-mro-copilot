@@ -21,7 +21,7 @@ from src.copilot import automations as copilot_automations_mod
 from src.copilot import hitl
 from src.copilot import models as copilot_models
 from src.copilot.agent import PROMPT_VERSION
-from src.copilot.identity import seeded_users
+from src.copilot.identity import can_write, seeded_users
 from src.copilot.runs import ApprovalNotAllowedError, RunBusyError, RunManager, Resolution
 from src.ops.db import copilot_pending, copilot_runs
 
@@ -89,6 +89,11 @@ class AutomationPatchRequest(BaseModel):
 class FleetScanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     window_days: int = 30
+
+
+def _require_writer(x_user: str) -> None:
+    if not can_write(x_user):
+        raise HTTPException(status_code=403, detail=f"'{x_user}' is a read-only viewer and cannot change operational data")
 
 
 def _run_or_404(engine: Engine, run_id: str) -> dict:
@@ -408,7 +413,9 @@ def post_automation(body: AutomationCreateRequest, engine: Engine = Depends(get_
 
 
 @router.patch("/automations/{automation_id}")
-def patch_automation(automation_id: int, body: AutomationPatchRequest, engine: Engine = Depends(get_engine)):
+def patch_automation(automation_id: int, body: AutomationPatchRequest, engine: Engine = Depends(get_engine),
+                     x_user: str = Header(default="engineer.demo")):
+    _require_writer(x_user)
     try:
         return copilot_automations_mod.set_enabled(engine, automation_id, body.enabled)
     except KeyError as exc:
@@ -416,11 +423,13 @@ def patch_automation(automation_id: int, body: AutomationPatchRequest, engine: E
 
 
 @router.post("/fleet-scan")
-async def fleet_scan(body: FleetScanRequest = FleetScanRequest(), manager: RunManager = Depends(get_manager)):
+async def fleet_scan(body: FleetScanRequest = FleetScanRequest(), manager: RunManager = Depends(get_manager),
+                     x_user: str = Header(default="engineer.demo")):
     """Real fleet-scan (``src.ops.service.fleet_scan``, unmodified) plus
     automation dispatch -- see ``src/copilot/automations.py`` module
     docstring for why this lives here rather than inside the phase-03-owned
     ``/ops/fleet-scan`` endpoint."""
+    _require_writer(x_user)
     from src.service.model_store import store
 
     if not store.loaded:

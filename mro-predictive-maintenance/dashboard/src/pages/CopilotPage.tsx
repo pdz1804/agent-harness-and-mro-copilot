@@ -12,13 +12,14 @@ import {
 } from "../lib/api";
 import { useCopilotStream } from "../hooks/useCopilotStream";
 import { useStickToBottom } from "../hooks/useStickToBottom";
-import { RunList } from "../components/copilot/RunList";
+import { RunList, filterRuns } from "../components/copilot/RunList";
+import { useUrlQuery } from "../hooks/useHashRoute";
 import { ToolCallBlock } from "../components/copilot/ToolCallBlock";
 import { buildTranscript } from "../lib/transcript";
 import { SafeMarkdown } from "../components/copilot/SafeMarkdown";
 import { Button, Chip } from "../components/ui/primitives";
 import { ServiceStatusBanner } from "../components/ui/states";
-import { ArrowDownIcon, BellIcon, BotIcon, CloseIcon, FileIcon, GaugeIcon, PlaneIcon, SendIcon, StopIcon } from "../components/ui/icons";
+import { ArrowDownIcon, BellIcon, SearchIcon, BotIcon, CloseIcon, FileIcon, GaugeIcon, PlaneIcon, SendIcon, StopIcon } from "../components/ui/icons";
 import { copilotModeLabel, copilotModeNote } from "../lib/labels";
 import { humanizeError, type HumanError } from "../lib/errors";
 import { IDENTITY_CHANGE_EVENT, canApprove, getCurrentUser } from "../lib/identity";
@@ -29,7 +30,10 @@ import {
   isSettledAfterResume,
   isStaleRun as computeStaleRun,
   legacyCancelledPending,
+  runStatusLabel,
+  workOrderIdFromResult,
 } from "../lib/run-status";
+import { CopyId, useToast } from "../components/ui/feedback";
 import { hrefFor } from "../lib/routes";
 import { finalizeResolutions, resolutionFor } from "../lib/tool-view";
 import type { CopilotMeta, CopilotPendingItem, CopilotRunDetail, CopilotRunSummary } from "../types";
@@ -47,13 +51,13 @@ function AgentAvatar() {
 }
 
 /** Tools grouped by how the copilot may use them: read freely / needs your approval / asks you. */
-function groupTools(meta: CopilotMeta): { title: string; tools: string[] }[] {
+function groupTools(meta: CopilotMeta): { title: string; tools: string[]; badge?: { label: string; tone: "warn" | "info" } }[] {
   const gated = new Set(meta.approval_gated_tools);
   const deferred = new Set(meta.deferred_tools.filter((t) => !gated.has(t)));
   return [
     { title: "Read", tools: meta.tools.filter((t) => !gated.has(t) && !deferred.has(t)) },
-    { title: "Needs approval", tools: meta.tools.filter((t) => gated.has(t)) },
-    { title: "Asks you", tools: meta.tools.filter((t) => deferred.has(t)) },
+    { title: "Needs approval", tools: meta.tools.filter((t) => gated.has(t)), badge: { label: "approval", tone: "warn" } },
+    { title: "Asks you", tools: meta.tools.filter((t) => deferred.has(t)), badge: { label: "question", tone: "info" } },
   ];
 }
 
@@ -73,8 +77,16 @@ const STARTERS = [
 
 type Sheet = null | "runs" | "context";
 
+/** What "Ask copilot" hands over: the prompt, plus the alert the run is
+ * about (sent as `alert_id`, so the run is linked to it) and a short label. */
+export interface CopilotPrefill {
+  prompt: string;
+  alertId?: number;
+  context?: string;
+}
+
 interface CopilotPageProps {
-  prefillPrompt: string | null;
+  prefillPrompt: CopilotPrefill | null;
   onPrefillConsumed: () => void;
   onPendingCountChange: (count: number) => void;
 }
@@ -97,8 +109,20 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
   // and counting that as "pending" was the header-pill bug.
   const [globalPending, setGlobalPending] = useState<CopilotPendingItem[]>([]);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [runSearch, setRunSearch] = useState("");
+  // `#/ops/copilot?run=<id>` (e.g. "Review in copilot" on Overview) opens that run.
+  const [routeQuery, setRouteQuery] = useUrlQuery({ run: "" });
+  useEffect(() => {
+    if (routeQuery.run) {
+      setActiveRunId(routeQuery.run);
+      setRouteQuery({ run: null });
+    }
+  }, [routeQuery.run, setRouteQuery]);
   const [detail, setDetail] = useState<CopilotRunDetail | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [ctx, setCtx] = useState<{ alertId?: number; context?: string } | null>(null);
+  const toast = useToast();
+  const seenWo = useRef<{ run: string | null; ids: Set<string> }>({ run: null, ids: new Set() });
   const [error, setError] = useState<HumanError | null>(null);
   const [starting, setStarting] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, CopilotResolution | null>>({});
@@ -153,9 +177,18 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
 
   useEffect(() => {
     if (prefillPrompt) {
-      setPrompt(prefillPrompt);
+      // Context from another page always starts a fresh run about it.
+      newRun();
+      setPrompt(prefillPrompt.prompt);
+      setCtx(prefillPrompt.alertId != null || prefillPrompt.context ? { alertId: prefillPrompt.alertId, context: prefillPrompt.context } : null);
       onPrefillConsumed();
-      inputRef.current?.focus();
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
     }
   }, [prefillPrompt, onPrefillConsumed]);
 
@@ -276,8 +309,9 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
     setStarting(true);
     setError(null);
     try {
-      const { run_id } = await startCopilotRun(prompt.trim());
+      const { run_id } = await startCopilotRun(prompt.trim(), ctx?.alertId);
       setPrompt("");
+      setCtx(null);
       reloadRuns();
       setActiveRunId(run_id);
     } catch (err) {
@@ -339,6 +373,36 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
     }
   };
 
+  // A work order created by an approved tool call gets a toast with a link,
+  // so the loop "approve -> WO exists -> go look at it" never needs a hunt.
+  useEffect(() => {
+    if (!detail) return;
+    const ids = detail.messages
+      .filter((m) => m.role === "tool_result" && m.tool_name === "create_work_order")
+      .map((m) => workOrderIdFromResult(m))
+      .filter((x): x is string => !!x);
+    const seen = seenWo.current;
+    if (seen.run !== detail.run_id) {
+      seenWo.current = { run: detail.run_id, ids: new Set(ids) };
+      return;
+    }
+    for (const id of ids) {
+      if (seen.ids.has(id)) continue;
+      seen.ids.add(id);
+      toast.show({
+        tone: "good",
+        message: (
+          <>
+            Work order <span className="mono">{id}</span> created
+          </>
+        ),
+        detail: "Approved through the copilot. It is now on the Work orders list.",
+        link: { label: "View work order", href: hrefFor(`ops/work-orders/${id}`) },
+        durationMs: 9000,
+      });
+    }
+  }, [detail, toast]);
+
   const newRun = () => {
     setActiveRunId(null);
     setDetail(null);
@@ -358,7 +422,7 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
   // Stale comes ONLY from the server's legacy-cancelled marker on this run.
   const isStaleRun = computeStaleRun(detail, resuming);
   const staleRunIds = new Set(isStaleRun && detail ? [detail.run_id] : []);
-  const shownRuns = resuming ? runs.map((r) => (r.id === activeRunId ? { ...r, status: "running" } : r)) : runs;
+  const shownRuns = filterRuns(resuming ? runs.map((r) => (r.id === activeRunId ? { ...r, status: "running" } : r)) : runs, runSearch);
   const conversationTitle = activeSummary ? runTitle(activeSummary) : detail ? runTitle({ user_prompt: detail.messages.find((m) => m.role === "user")?.content ?? null, trigger: detail.trigger }) : "";
   const working = !!activeRunId && !streamingText && ((!terminal && shownStatus === "running") || starting || (resuming && terminal));
   const canCancel = !!detail && !resuming && (detail.status === "running" || (detail.status === "awaiting_input" && !isStaleRun));
@@ -367,7 +431,7 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
     <Chip
       tone={isStaleRun ? "neutral" : shownStatus === "awaiting_input" ? "warn" : shownStatus === "completed" ? "good" : shownStatus === "failed" ? "bad" : "info"}
     >
-      {isStaleRun ? "stale, cancelled" : shownStatus.replace("_", " ")}
+      {isStaleRun ? "Stale, cancelled" : runStatusLabel(shownStatus)}
     </Chip>
   ) : null;
 
@@ -409,8 +473,23 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
               </Button>
             </span>
           </div>
+          <div className="run-search">
+            <label className="search-field">
+              <SearchIcon />
+              <input
+                className="input input-sm"
+                type="search"
+                name="run-search"
+                placeholder="Search runs…"
+                aria-label="Search copilot runs"
+                autoComplete="off"
+                value={runSearch}
+                onChange={(e) => setRunSearch(e.target.value)}
+              />
+            </label>
+          </div>
           <div className="cockpit-scroll">
-            <RunList runs={shownRuns} activeRunId={activeRunId} onSelect={selectRun} staleRunIds={staleRunIds} />
+            <RunList runs={shownRuns} activeRunId={activeRunId} onSelect={selectRun} staleRunIds={staleRunIds} filtered={runSearch.trim() !== ""} />
           </div>
         </aside>
 
@@ -591,6 +670,15 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
               else void doStart();
             }}
           >
+            {ctx && !activeRunId && (
+              <span className="composer-ctx" title="This run will be linked to that alert">
+                <span className="muted">About</span>
+                <strong>{ctx.context ?? `alert #${ctx.alertId}`}</strong>
+                <button type="button" className="btn btn-ghost btn-sm btn-icon" aria-label="Remove context" onClick={() => setCtx(null)}>
+                  <CloseIcon />
+                </button>
+              </span>
+            )}
             <input
               ref={inputRef}
               className="input"
@@ -629,7 +717,7 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
               <dl className="kv is-compact">
                 <dt>status</dt>
                 <dd>
-                  <strong>{shownStatus}</strong>
+                  <strong>{runStatusLabel(shownStatus)}</strong>
                 </dd>
                 <dt>trigger</dt>
                 <dd>{detail.trigger}</dd>
@@ -643,6 +731,18 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
                 )}
                 <dt>model</dt>
                 <dd className="mono">{detail.model_name}</dd>
+                {meta && (
+                  <>
+                    <dt>prompt</dt>
+                    <dd className="mono">{meta.prompt_version}</dd>
+                  </>
+                )}
+                <dt>run</dt>
+                <dd>
+                  <CopyId value={detail.run_id} />
+                </dd>
+                <dt>pending</dt>
+                <dd className="tnum">{pending.length}</dd>
               </dl>
             ) : (
               <p className="muted">No run selected.</p>
@@ -665,6 +765,11 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
                             <span className="mono tool-list-name" title={t}>
                               {t}
                             </span>
+                            {g.badge && (
+                              <Chip tone={g.badge.tone} plain>
+                                {g.badge.label}
+                              </Chip>
+                            )}
                           </li>
                         ))}
                       </ul>

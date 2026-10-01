@@ -8,6 +8,7 @@ Endpoints:
     GET  /model-card          model id, threshold, metrics, training date, feature list
     POST /score                {feature payload} -> risk score, alert, live SHAP factors
     GET  /fleet/top-risk?n=    live-scored, ranked latest snapshot of every test-split component
+    GET  /fleet/components     the same ranking, filtered (band/type/q), sorted and paginated
 
 CORS (not a Vite dev proxy) is how the dashboard reaches this service:
 allowed origins are read from ``SERVICE_CORS_ORIGINS`` (comma-separated),
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -44,6 +46,8 @@ from src.service.routers import monitoring as monitoring_router
 from src.service.routers import ops as ops_router
 from src.service.schemas import (
     FleetRiskItem,
+    FleetListItem,
+    FleetPageResponse,
     FleetRiskResponse,
     HealthResponse,
     ModelCardResponse,
@@ -221,6 +225,115 @@ def _fleet_item(row: pd.Series, risk_score: float, threshold: float) -> FleetRis
     )
 
 
+def _risk_order(fleet_df: pd.DataFrame, scores) -> list[int]:
+    """Row positions ranked by risk, descending, with a deterministic
+    tie-break: most recent ``snapshot_date`` first, then ``component_id``.
+
+    HGB saturates on the easy v1 data, so the top rows legitimately tie at
+    the same rounded score; a plain ``argsort`` would give an arbitrary tie
+    order. A more recently observed reading is more actionable than a stale
+    one at the same score. Display/ranking tie-break only, not a model change."""
+    snapshot_dates = pd.to_datetime(fleet_df["snapshot_date"])
+    return sorted(
+        range(len(scores)),
+        key=lambda i: (-float(scores[i]), -snapshot_dates.iloc[i].value, fleet_df.iloc[i]["component_id"]),
+    )
+
+
+def risk_band(risk_score: float, threshold: float) -> str:
+    """``alert`` at/over the operating threshold, ``watch`` at/over
+    ``config.WATCH_FLOOR``, else ``normal``."""
+    if risk_score >= threshold:
+        return "alert"
+    if risk_score >= config.WATCH_FLOOR:
+        return "watch"
+    return "normal"
+
+
+FLEET_SORT_KEYS = ("risk", "component_id", "aircraft_id", "component_type", "cycle")
+FLEET_BANDS = ("all", "alert", "watch", "normal")
+
+
+@app.get("/fleet/components", response_model=FleetPageResponse)
+def fleet_components(
+    offset: int = 0,
+    limit: int = 20,
+    band: str = "all",
+    component_type: Optional[str] = None,
+    q: Optional[str] = None,
+    sort: str = "risk",
+    dir: str = "desc",
+) -> FleetPageResponse:
+    """The whole scored fleet, one page at a time. Filters (band, type, free
+    text over component/aircraft id) and sort apply before paging; ``rank``
+    is always the global risk rank, so it stays stable across filters."""
+    _require_model()
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset must be >= 0")
+    if not 1 <= limit <= 1000:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 1000")
+    if band not in FLEET_BANDS:
+        raise HTTPException(status_code=422, detail=f"band must be one of {', '.join(FLEET_BANDS)}")
+    if sort not in FLEET_SORT_KEYS:
+        raise HTTPException(status_code=422, detail=f"sort must be one of {', '.join(FLEET_SORT_KEYS)}")
+    if dir not in ("asc", "desc"):
+        raise HTTPException(status_code=422, detail="dir must be asc or desc")
+
+    fleet_df = store.test_latest_df
+    scores = predict_scores(store.pipeline, fleet_df)
+    threshold = store.threshold
+    has_ac_type = "aircraft_type" in fleet_df.columns
+    ranked: list[FleetListItem] = []
+    for rank, idx in enumerate(_risk_order(fleet_df, scores), start=1):
+        row = fleet_df.iloc[idx]
+        score = float(scores[idx])
+        ac_type = row["aircraft_type"] if has_ac_type else None
+        ranked.append(
+            FleetListItem(
+                rank=rank,
+                component_id=row["component_id"],
+                aircraft_id=row["aircraft_id"],
+                aircraft_type=None if ac_type is None or pd.isna(ac_type) else str(ac_type),
+                component_type=row["component_type"],
+                cycle=float(row["cycle"]),
+                snapshot_date=str(row["snapshot_date"]),
+                risk_score=score,
+                alert=bool(score >= threshold),
+                band=risk_band(score, threshold),
+                true_label=int(row["label"]),
+            )
+        )
+
+    counts = {b: sum(1 for i in ranked if i.band == b) for b in FLEET_BANDS[1:]}
+    types = sorted({i.component_type for i in ranked})
+    needle = (q or "").strip().lower()
+    filtered = [
+        i for i in ranked
+        if (band == "all" or i.band == band)
+        and (not component_type or i.component_type == component_type)
+        and (not needle or needle in i.component_id.lower() or needle in i.aircraft_id.lower())
+    ]
+    if sort == "risk":
+        if dir == "asc":
+            filtered.reverse()
+    else:
+        # Python's sort is stable, so equal keys keep their risk order.
+        filtered.sort(key=lambda i: getattr(i, sort), reverse=dir == "desc")
+
+    return FleetPageResponse(
+        model_id=store.model_id,
+        threshold=threshold,
+        watch_floor=config.WATCH_FLOOR,
+        n_scored=len(ranked),
+        total=len(filtered),
+        offset=offset,
+        limit=limit,
+        counts=counts,
+        component_types=types,
+        items=filtered[offset : offset + limit],
+    )
+
+
 @app.get("/fleet/top-risk", response_model=FleetRiskResponse)
 def fleet_top_risk(n: int = 10) -> FleetRiskResponse:
     _require_model()
@@ -231,21 +344,7 @@ def fleet_top_risk(n: int = 10) -> FleetRiskResponse:
     scores = predict_scores(store.pipeline, fleet_df)
     threshold = store.threshold
 
-    # HGB saturates on the easy v1 data, so the top rows legitimately tie at
-    # the same rounded risk score -- a plain `argsort` gives an arbitrary,
-    # non-deterministic tie order (no stable secondary key). Deterministic
-    # secondary sort: most-recent `snapshot_date` first (a real, meaningful
-    # signal -- a more recently observed reading is more actionable than a
-    # stale one at the same score), then `component_id` as a final total
-    # tie-break so repeated calls always return the identical order. Not a
-    # model change -- purely a display/ranking tie-break for ties the model
-    # itself cannot resolve (no per-row margin/decision-function is exposed
-    # by this classifier).
-    snapshot_dates = pd.to_datetime(fleet_df["snapshot_date"])
-    order = sorted(
-        range(len(scores)),
-        key=lambda i: (-float(scores[i]), -snapshot_dates.iloc[i].value, fleet_df.iloc[i]["component_id"]),
-    )[:n]
+    order = _risk_order(fleet_df, scores)[:n]
     items = [_fleet_item(fleet_df.iloc[idx], float(scores[idx]), threshold) for idx in order]
 
     return FleetRiskResponse(

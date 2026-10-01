@@ -61,3 +61,24 @@ export function currentUserRole(): SeededUser["role"] {
 export function canApprove(): boolean {
   return currentUserRole() !== "viewer";
 }
+
+/** Whether the acting identity may change operational data (acknowledge,
+ * dismiss or close alerts, raise or close work orders, set aircraft status,
+ * scan the fleet). Mirrors `src/copilot/identity.py::can_write`; the API
+ * returns 403 for a viewer either way. */
+export function canWrite(user: string = getCurrentUser()): boolean {
+  return (SEEDED_USERS.find((u) => u.id === user)?.role ?? "engineer") !== "viewer";
+}
+
+export const READ_ONLY_PREFIX = "Viewer is read-only";
+
+/** Tooltip / hint shown on a control a viewer cannot use. */
+export function readOnlyReason(action: string): string {
+  return `${READ_ONLY_PREFIX}. lead.engineer or planner can ${action}.`;
+}
+
+/** True when a disabled control's title is a role reason (so the button
+ * shows a lock instead of looking merely inactive). */
+export function isRoleLockReason(title: unknown): boolean {
+  return typeof title === "string" && (title.startsWith(READ_ONLY_PREFIX) || title.startsWith("Only lead.engineer"));
+}

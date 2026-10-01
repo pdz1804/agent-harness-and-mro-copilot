@@ -49,6 +49,10 @@ TARGET_ALERTS_PER_100 = 5.0
 # "how often would an ops team re-triage the fleet."
 ALERT_WINDOW_DAYS = 30
 
+# Fleet risk bands: at/over the threshold is "alert", at/over this floor is
+# "watch", anything lower is "normal". Display only; alerting uses the threshold.
+WATCH_FLOOR = 0.5
+
 # Illustrative cost defaults (USD) for the min_expected_cost threshold policy
 # (src/evaluation.py). These are NOT calibrated against any real MRO's
 # finance data -- there was none available for this take-home -- and are

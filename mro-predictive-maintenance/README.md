@@ -2,7 +2,7 @@
 
 Predicts whether an aircraft component will need an **unscheduled removal
 within the next 30 flight cycles**, from periodic sensor/inspection data.
-Built for a take-home test (no real MRO dataset was supplied), so this repo
+No real MRO dataset is available for this proof of concept, so this repo
 also includes a documented, seeded synthetic-data generator.
 
 See `docs/design-report.md` for the full write-up (data prep, splitting
@@ -64,7 +64,7 @@ src/explainability.py      permutation importance + SHAP (with a documented fall
 src/pipeline.py            end-to-end training/eval CLI (`python -m src.pipeline[--retrain]`)
 src/service/               FastAPI live scoring service (see "Live scoring service" below)
 tests/                     pytest suite (dataset determinism, leakage, model smoke, service tests)
-docs/design-report.md      the submission write-up
+docs/design-report.md      the full design write-up
 docs/demo-evidence.md      real captured console output + example explanations
 reports/                   generated metrics/importance/explanation artifacts
 models/                    fitted model artifacts (joblib)
@@ -140,6 +140,7 @@ transcripts):
 | `GET /model-card` | model id, threshold, val/test metrics, training date, feature list -- read verbatim from `reports/model_card.json` |
 | `POST /score` | component feature payload -> risk score, alert (score >= threshold), live SHAP factors |
 | `GET /fleet/top-risk?n=` | live-scores the latest snapshot of every active component in the held-out **test** split, ranked |
+| `GET /fleet/components?offset=&limit=&band=&component_type=&q=&sort=&dir=` | the same ranking for the whole fleet, paginated server-side; each row carries its global `rank` and a `band` (`alert` at/over the threshold, `watch` at/over `WATCH_FLOOR` = 0.5, else `normal`); `counts` are whole-fleet per band |
 
 Missing numeric features are accepted as `null` and handled exactly like
 training (median-imputed for `logistic_regression`, routed natively for
@@ -237,14 +238,17 @@ flowchart LR
 
 | Nav | Tab | Backed by |
 |---|---|---|
-| Operations | Fleet | `GET /fleet/top-risk` (live scoring of the held-out test split) |
+| Overview | Control desk | `GET /ops/alerts` (inline Acknowledge with undo), `GET /copilot/pending` (approvals card), `GET /ops/activity` (feed of real alert, work-order, copilot and drift events; bursts collapsed) |
+| Operations | Fleet | `GET /fleet/components` (all scored components, paginated, Alert/Watch/Normal bands, bulk select with triage/acknowledge/export, cards on phones) |
+| Operations | Component | tabs Overview / History / Related / Raw (`?tab=`), inline copilot entry with the component and alert attached |
 | Operations | Alerts | `GET /ops/alerts`, `POST /ops/alerts/{id}/transition` |
-| Operations | Work orders | `GET /ops/work-orders`, `POST /ops/work-orders/{id}/close` |
+| Operations | Work orders | `GET /ops/work-orders`, `POST /ops/work-orders/{id}/close`, Export CSV of the rows in view |
 | Operations | Knowledge base | `GET /kb`, `POST /kb/search` (hybrid BM25+TF-IDF retrieval) |
-| Operations | Copilot | `POST /copilot/runs` + SSE stream, resolve/cancel, `POST /copilot/fleet-scan` |
-| Model | Performance | `GET /model-card`, threshold sweep, calibration reliability curve |
+| Operations | Copilot | `POST /copilot/runs` + SSE stream, resolve/cancel, `POST /copilot/fleet-scan`; run search; `?run=<id>` opens a run |
+| Model | Performance | `GET /model-card` (incl. the confusion matrix from `test_at_threshold`), threshold sweep, calibration reliability curve |
 | Model | Explainability | permutation importance + SHAP (`reports/feature_importance_*.csv`) |
-| Model | Monitoring | `GET /monitoring/drift`, `GET /monitoring/performance`, `GET /models` (registry) |
+| Model | Monitoring | `GET /monitoring/drift` ("Run drift check" records a real snapshot), `GET /monitoring/performance`, `GET /models` (registry), `POST /models/retrain` ("Retrain", lead.engineer only, polled with progress and toasts) |
+| Model | What-if | `POST /score`; "Copy scenario link" puts the changed fields in `?s=field:value,...` |
 | About | Overview / Architecture / How it works / Production design | static narrative, cross-linking to `docs/design-report.md` |
 
 ### Identities / roles
@@ -257,6 +261,17 @@ picked in the dashboard's identity switcher (top bar):
 | `lead.engineer` | lead | yes |
 | `planner` | planner | yes |
 | `viewer` | viewer | **no** — `POST /copilot/runs/{id}/resolve` returns `403` for approval/deny; a viewer may still answer `ask_user` clarifications (no write action on that path) |
+
+`viewer` is **read-only everywhere**, not only on copilot approvals. Every
+endpoint that changes operational data returns `403` for it:
+`POST /ops/alerts/{id}/transition`, `POST /ops/work-orders`,
+`POST /ops/work-orders/{id}/close`, `POST /ops/aircraft/{id}/status`,
+`POST /ops/fleet-scan`, `POST /copilot/fleet-scan` and
+`PATCH /copilot/automations/{id}` (`src/copilot/identity.py::can_write`).
+The dashboard mirrors this: write controls are disabled with the reason
+("Viewer is read-only. lead.engineer or planner can …") and show a lock in
+place of their icon, and a banner offers to switch identity. A viewer can still read every page and ask the copilot
+questions.
 
 This is a demo-grade identity picker (`X-User` header, no session/password) —
 not real authentication; see Limitations.
@@ -280,13 +295,55 @@ $env:OPENAI_API_KEY = "<key>"; .\.venv\Scripts\python.exe -m pytest -q -m live  
 cd dashboard; npm run build; npm test -- --run
 ```
 
+### Reset the demo data
+
+Demo actions (acknowledging alerts, raising and closing work orders, copilot
+runs) persist in `data/ops.db`. To return it to the freshly seeded state:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\reset_demo_data.py          # add --keep-copilot-runs to keep run history
+```
+
+It keeps the fleet-scan alerts (same ids and scores), predictions, drift
+snapshots and the default automation; every alert goes back to `open`, and
+work orders, aircraft-status overrides and copilot runs are removed. It is
+safe to run while the service is up; the dashboard shows the clean state on
+its next refresh. `tests/test_reset_demo_data.py` covers it.
+
+### Screenshots and flows
+
+All captured from the live service and dashboard (1440 px desktop, 390 px
+phone). Files are in `docs/images/`.
+
+| Overview | Fleet | Component |
+|---|---|---|
+| ![Overview](docs/images/overview-1440.png) | ![Fleet components](docs/images/fleet-components-1440.png) | ![Component detail](docs/images/component-detail-1440.png) |
+| **Alert sheet** | **Copilot, approved tool call** | **What-if** |
+| ![Alert detail sheet](docs/images/alert-detail-sheet-1440.png) | ![Copilot approved tool call](docs/images/copilot-approved-tool-call-1440.png) | ![What-if scenario](docs/images/what-if-scenario-1440.png) |
+| **Work orders** | **Monitoring** | **Viewer (read-only)** |
+| ![Work orders](docs/images/work-orders-list-1440.png) | ![Monitoring drift](docs/images/monitoring-drift-1440.png) | ![Viewer read-only](docs/images/viewer-read-only-alert-1440.png) |
+
+| Phone: overview | Phone: fleet | Phone: alert sheet |
+|---|---|---|
+| ![Overview 390](docs/images/overview-390.png) | ![Fleet 390](docs/images/fleet-components-390.png) | ![Alert sheet 390](docs/images/alert-detail-sheet-390.png) |
+
+Hero flows (WebM):
+
+- [Fleet → component → alert, acknowledge, then Undo](docs/images/flow-fleet-alert-acknowledge-undo.webm)
+- [Acknowledge, raise a work order through the copilot, approve it](docs/images/flow-copilot-raise-work-order-approval.webm)
+- [What-if: change one input, watch the score and SHAP factors move](docs/images/flow-what-if-scoring.webm)
+
+A copilot run started from an alert links the work order it raises to that
+alert (when the component matches), so the alert moves to `wo_raised` just
+as a manually raised work order does.
+
 ### Known limitations
 
 - **No real authentication** — the identity picker is a demo header
   (`X-User`), not login/session/password.
 - **SQLite single-writer** — fine for a demo/POC; a real deployment needs
   Postgres for concurrent writers.
-- **Fictional knowledge base** — `kb/*.md` are authored-for-this-test
+- **Fictional knowledge base** — `kb/*.md` are authored-for-this-demo
   maintenance procedures, not real OEM AMM/MEL content; KB eval numbers
   (below) measure retrieval quality against this fictional corpus only.
 - **Offline mode is a scripted router**, not a smaller real LLM — it proves
@@ -301,7 +358,7 @@ cd dashboard; npm run build; npm test -- --run
 shap, tabulate, pytest, fastapi, uvicorn, httpx. All pip-installable, no
 GPU/CUDA required. `xgboost` was evaluated but not used --
 `HistGradientBoostingClassifier` (plain scikit-learn) was preferred to keep
-the dependency footprint minimal per the take-home's design guidance; see
+the dependency footprint minimal, as the design brief asked; see
 `docs/design-report.md`. `dashboard/`'s frontend deps (react, recharts,
 vite) are separate, in `dashboard/package.json`.
 

@@ -1,5 +1,8 @@
 import type { DriftHistory, DriftReport, FeatureDrift } from "../types";
 
+/** Conventional PSI cut-offs, used only when the drift API omits `thresholds`. */
+export const PSI_BANDS = { warn: 0.1, alert: 0.25 } as const;
+
 /** `GET /monitoring/drift` returns `{status, features: {name: {psi, status,
  * type, monitored, ...}}, score_psi, score_status, thresholds}`. An older
  * client shape used `{overall_status, feature_drift: []}`; the page used to
@@ -70,8 +73,8 @@ export function normalizeDrift(raw: DriftReport): NormalizedDrift {
     nCurrent: num(r.n_current),
     source: String(r.current_source ?? "unknown"),
     simulated: r.simulated_shift_applied === true,
-    warnAt: num(thresholds.warn) ?? num(thresholds.psi_warn) ?? 0.1,
-    alertAt: num(thresholds.alert) ?? num(thresholds.psi_alert) ?? 0.25,
+    warnAt: num(thresholds.warn) ?? num(thresholds.psi_warn) ?? PSI_BANDS.warn,
+    alertAt: num(thresholds.alert) ?? num(thresholds.psi_alert) ?? PSI_BANDS.alert,
   };
 }
 

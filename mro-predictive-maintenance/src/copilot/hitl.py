@@ -358,7 +358,7 @@ def run_turn(
     agent = build_agent(model)
     deps = CopilotDeps(
         ops_conn_factory=engine.connect, model_store=model_store, kb_index=kb_index,
-        actor=actor, run_id=run_id,
+        actor=actor, run_id=run_id, alert_id=run.get("alert_id"),
     )
 
     tracing.init_tracing()

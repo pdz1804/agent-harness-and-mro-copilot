@@ -1,15 +1,57 @@
-import { getPerformance, listAlerts, listWorkOrders } from "../lib/api";
+import { getActivity, getGlobalPending, getPerformance, listAlerts, listWorkOrders } from "../lib/api";
 import { useAsync } from "../hooks/useAsync";
+import { useAcknowledge } from "../hooks/useAcknowledge";
+import { useCanWrite } from "../hooks/useCanWrite";
+import { readOnlyReason } from "../lib/identity";
+import { approvalFields } from "../lib/activity";
+import { TOOL_LABELS } from "../components/copilot/ApprovalCard";
 import { formatDecimal, formatNumber, formatPct } from "../lib/format";
 import { hrefFor } from "../lib/routes";
 import { ageLabel, alertTone, asLiveOutcomes, componentTypeFromId, humanizeType, STAGE_LABEL } from "../lib/risk";
 import { DataTable, type Column } from "../components/ui/data-table";
-import { ButtonLink, Chip, PageHead, Panel, StatBar } from "../components/ui/primitives";
+import { Button, ButtonLink, Chip, PageHead, Panel, StatBar } from "../components/ui/primitives";
 import { RiskMeter } from "../components/ui/widgets";
-import { EmptyState, Notice } from "../components/ui/states";
-import { BellIcon, ClipboardIcon, GaugeIcon, LockIcon } from "../components/ui/icons";
+import { EmptyState, LoadingRows, Notice } from "../components/ui/states";
+import { ActivityIcon, BellIcon, BotIcon, CheckIcon, ClipboardIcon, GaugeIcon, LockIcon, WrenchIcon } from "../components/ui/icons";
+import { RelTime } from "../components/ui/feedback";
 import { countSince, dailyCounts } from "../lib/series";
-import type { Alert, DashboardData, ModelResult } from "../types";
+import type { ReactNode } from "react";
+import type { ActivityItem, Alert, DashboardData, ModelResult } from "../types";
+
+const ACTIVITY_ICON: Record<string, ReactNode> = {
+  alert: <BellIcon />,
+  work_order: <WrenchIcon />,
+  copilot: <BotIcon />,
+  approval: <LockIcon />,
+  drift: <ActivityIcon />,
+};
+
+function ActivityRow({ item }: { item: ActivityItem }) {
+  const body = (
+    <>
+      <span className="activity-ico" aria-hidden="true">
+        {ACTIVITY_ICON[item.kind] ?? <ActivityIcon />}
+      </span>
+      <span className="row-main">
+        <span className="row-title">
+          {item.title}
+          {item.count > 1 && item.kind !== "alert" && <span className="muted tnum"> ×{item.count}</span>}
+        </span>
+        <span className="row-sub">{item.detail}</span>
+      </span>
+      <span className="row-end muted">
+        <RelTime iso={item.at} />
+      </span>
+    </>
+  );
+  return item.href ? (
+    <a className="row-item" href={hrefFor(item.href)}>
+      {body}
+    </a>
+  ) : (
+    <div className="row-item">{body}</div>
+  );
+}
 
 const LANES: { role: string; goal: string; links: { label: string; to: string }[] }[] = [
   {
@@ -65,12 +107,26 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
     const [alerts, wos, perf] = await Promise.all([listAlerts(), listWorkOrders(), getPerformance()]);
     return { alerts, wos, perf };
   }, []);
+  const approvals = useAsync(() => getGlobalPending(), [pendingCount]);
+  const activity = useAsync(() => getActivity(8), []);
+  const writable = useCanWrite();
+  const reloadLive = live.reload;
+  const reloadActivity = activity.reload;
+  const { acknowledge, pending: ackPending } = useAcknowledge(() => {
+    reloadLive();
+    reloadActivity();
+  });
+  const pendingApprovals = (approvals.data ?? []).filter((p) => !p.is_stale && p.kind === "approval");
 
   const openAlerts = (live.data?.alerts ?? []).filter((a) => a.status !== "closed");
+  const alertTimes = (live.data?.alerts ?? []).map((a) => a.opened_at);
   const openWos = (live.data?.wos ?? []).filter((w) => w.status !== "closed");
   const outcomes = asLiveOutcomes(live.data?.perf.live_outcomes);
-  const attention = openAlerts.filter((a) => a.status === "open").slice(0, 5);
-  const alertTimes = (live.data?.alerts ?? []).map((a) => a.opened_at);
+  const attention = openAlerts
+    .filter((a) => a.status === "open" && !ackPending.has(a.id))
+    .sort((a, b) => b.risk_score - a.risk_score || Date.parse(b.opened_at) - Date.parse(a.opened_at))
+    .slice(0, 5);
+  const lastOpened = alertTimes.length > 0 ? alertTimes.reduce((m, t) => (Date.parse(t) > Date.parse(m) ? t : m)) : null;
   const woTimes = (live.data?.wos ?? []).map((w) => w.created_at);
   const newAlerts = countSince(alertTimes);
 
@@ -105,7 +161,24 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
     <div className="page">
       <PageHead
         title="Overview"
-        description="Predicts which aircraft components need an unscheduled removal within 30 flight cycles, explains each score, and routes the risky ones into alerts, work orders and an approval-gated copilot."
+        description={
+          <>
+            Predicts which aircraft components need an unscheduled removal within 30 flight cycles, explains each score, and routes the risky ones into alerts, work orders and an approval-gated copilot.
+            <span className="page-facts">
+              {lastOpened && (
+                <span>
+                  Last alert raised <strong><RelTime iso={lastOpened} /></strong>
+                </span>
+              )}
+              <span>
+                Model <strong className="mono">{primary.id}</strong>
+              </span>
+              <span>
+                Alert threshold <strong className="tnum">{formatPct(primary.chosen_threshold, 2)}</strong>
+              </span>
+            </span>
+          </>
+        }
         actions={
           <>
             <ButtonLink href={hrefFor("model/performance")}>See the evidence</ButtonLink>
@@ -152,7 +225,7 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
         <Panel
           flush
           title="Needs attention"
-          sub="Open alerts, newest first"
+          sub="Open alerts, highest risk first. Acknowledge is optimistic with undo."
           actions={
             <ButtonLink size="sm" href={hrefFor("ops/alerts")}>
               All alerts
@@ -170,8 +243,19 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
               columns={columns}
               rowKey={(a) => String(a.id)}
               rowHref={(a) => hrefFor(`ops/alerts/${a.id}`)}
-              loading={live.loading}
+              loading={live.loading && !live.data}
               skeletonRows={3}
+              rowActions={(a) => (
+                <Button
+                  size="sm"
+                  onClick={() => acknowledge([a])}
+                  aria-label={`Acknowledge alert ${a.id}`}
+                  {...(writable ? {} : { disabled: true, title: readOnlyReason("acknowledge") })}
+                >
+                  <CheckIcon />
+                  Acknowledge
+                </Button>
+              )}
               empty={
                 <EmptyState title="Nothing open" center>
                   Run a fleet scan from the Fleet page to raise new alerts.
@@ -214,6 +298,70 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
               target
             </span>
           </p>
+        </Panel>
+      </div>
+
+      <div className="grid-2">
+        <Panel
+          title="Copilot approvals"
+          sub="Actions the copilot proposed that wait for a human."
+          actions={pendingApprovals.length > 0 ? <Chip tone="warn">{pendingApprovals.length} awaiting</Chip> : undefined}
+          flush
+        >
+          {approvals.error && (
+            <div style={{ padding: 16 }}>
+              <Notice tone="plain">Approvals are unavailable while the service is unreachable.</Notice>
+            </div>
+          )}
+          {approvals.loading && !approvals.data && <LoadingRows rows={2} height={40} />}
+          {approvals.data && pendingApprovals.length === 0 && (
+            <EmptyState title="Nothing awaiting approval" center>
+              When the copilot proposes a work order or a status change, it waits here for an engineer.
+            </EmptyState>
+          )}
+          <div className="rows">
+            {pendingApprovals.slice(0, 3).map((p) => (
+              <div className="approval-mini" key={p.id}>
+                <div className="row row-between">
+                  <span className="row-title">{TOOL_LABELS[p.tool_name ?? ""] ?? p.tool_name ?? "Tool call"}</span>
+                  <code className="mono muted">{p.tool_name}</code>
+                </div>
+                <dl className="kv is-compact">
+                  {approvalFields(p.args).map((f) => (
+                    <div key={f.key} style={{ display: "contents" }}>
+                      <dt>{f.label}</dt>
+                      <dd className="mono">{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="row row-between">
+                  <ButtonLink size="sm" variant="primary" href={`${hrefFor("ops/copilot")}${p.run_id ? `?run=${encodeURIComponent(p.run_id)}` : ""}`}>
+                    Review in copilot
+                  </ButtonLink>
+                  {p.run_id && <span className="muted mono" title={p.run_id}>{p.run_id.slice(0, 12)}…</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Activity" sub="Alert, work-order, copilot and drift events, newest first." flush>
+          {activity.error && (
+            <div style={{ padding: 16 }}>
+              <Notice tone="plain">The activity feed is unavailable while the service is unreachable.</Notice>
+            </div>
+          )}
+          {activity.loading && !activity.data && <LoadingRows rows={4} height={36} />}
+          {activity.data && activity.data.length === 0 && (
+            <EmptyState title="No activity yet" center>
+              Scan the fleet or acknowledge an alert and it shows up here.
+            </EmptyState>
+          )}
+          <div className="rows">
+            {(activity.data ?? []).map((item) => (
+              <ActivityRow key={`${item.group}-${item.at}`} item={item} />
+            ))}
+          </div>
         </Panel>
       </div>
 

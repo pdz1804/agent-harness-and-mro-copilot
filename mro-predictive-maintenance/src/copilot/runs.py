@@ -298,7 +298,7 @@ class RunManager:
         agent = build_agent(model)
         deps = CopilotDeps(
             ops_conn_factory=self.engine.connect, model_store=self.model_store, kb_index=self.kb_index,
-            actor=actor, run_id=run_id,
+            actor=actor, run_id=run_id, alert_id=run.get("alert_id"),
         )
 
         tracing.init_tracing()

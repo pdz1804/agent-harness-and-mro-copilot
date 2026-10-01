@@ -114,6 +114,35 @@ class FleetRiskResponse(BaseModel):
     items: list[FleetRiskItem]
 
 
+class FleetListItem(BaseModel):
+    """One row of the paginated fleet list (no feature payload)."""
+
+    rank: int  # global risk rank, 1 = highest
+    component_id: str
+    aircraft_id: str
+    aircraft_type: Optional[str] = None
+    component_type: str
+    cycle: float
+    snapshot_date: str
+    risk_score: float
+    alert: bool
+    band: str  # "alert" | "watch" | "normal"
+    true_label: int
+
+
+class FleetPageResponse(BaseModel):
+    model_id: str
+    threshold: float
+    watch_floor: float
+    n_scored: int
+    total: int  # rows matching the filters, before paging
+    offset: int
+    limit: int
+    counts: dict[str, int]  # whole fleet per band, independent of filters
+    component_types: list[str]
+    items: list[FleetListItem]
+
+
 class HealthResponse(BaseModel):
     status: str
     model_id: Optional[str] = None

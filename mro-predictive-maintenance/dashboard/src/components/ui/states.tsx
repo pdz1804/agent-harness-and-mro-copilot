@@ -97,3 +97,33 @@ export function ServiceStatusBanner({
     </Notice>
   );
 }
+
+/** Skeleton shaped like a detail sheet body: factor bars, stepper, list. */
+export function SheetSkeleton() {
+  return (
+    <div className="stack" style={{ gap: 20 }} aria-busy="true">
+      <LoadingRows rows={4} height={14} label="Loading detail…" />
+      <div className="skeleton" style={{ height: 44 }} />
+      <LoadingRows rows={3} height={12} />
+    </div>
+  );
+}
+
+/** Shown at the top of pages with write controls when the acting identity is
+ * the read-only viewer. The disabled controls carry the per-action reason. */
+export function ReadOnlyNotice() {
+  const focusPicker = () => document.querySelector<HTMLSelectElement>(".identity select")?.focus();
+  return (
+    <Notice
+      tone="plain"
+      role="status"
+      actions={
+        <button type="button" className="btn btn-sm" onClick={focusPicker}>
+          Switch identity
+        </button>
+      }
+    >
+      You’re viewing as <strong>viewer</strong>, which is read-only. Actions show who can do them.
+    </Notice>
+  );
+}

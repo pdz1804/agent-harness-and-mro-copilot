@@ -1,0 +1,476 @@
+/* ==========================================================================
+   Material layer (loads last). Owns: motion curves, scrollbars, the glass
+   material for floating layers, the left nav, and the floating chrome that
+   content scrolls beneath. See DESIGN.md "Material and motion".
+   ========================================================================== */
+
+:root {
+  /* spring: a critically-damped-ish curve with ~3% overshoot */
+  --ease-spring: linear(0, 0.06 2%, 0.24 5%, 0.5 9%, 0.78 14%, 0.94 19%, 1.02 25%, 1.035 31%, 1.02 40%, 1.005 52%, 1);
+  --dur-spring: 380ms;
+
+  /* glass: floating layers only (chrome, palette, toasts, sheets, composer) */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-bg-sheet: rgba(255, 255, 255, 0.95);
+  --glass-bg-dark: rgba(15, 23, 42, 0.84);
+  --glass-filter: saturate(180%) blur(18px);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 0 0 1px rgba(15, 23, 42, 0.07);
+
+  --side-w: 236px;
+  --chrome-top: var(--topbar-h);
+  --chrome-bottom: 0px;
+}
+@supports not (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: var(--ease-out);
+    --dur-spring: var(--dur-2);
+  }
+}
+
+/* ---- Scrollbars: thin, rounded, invisible until the panel is hovered ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover,
+*:focus-within {
+  scrollbar-color: rgba(15, 23, 42, 0.22) transparent;
+}
+@supports selector(::-webkit-scrollbar) {
+  /* Chromium ignores ::-webkit-scrollbar when the standard props are set. */
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  *:hover,
+  *:focus-within {
+    scrollbar-color: auto;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: var(--r-full);
+    background: transparent;
+    background-clip: content-box;
+  }
+  :hover::-webkit-scrollbar-thumb,
+  :focus-within::-webkit-scrollbar-thumb {
+    background-color: rgba(15, 23, 42, 0.2);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(15, 23, 42, 0.36);
+    border-width: 2px;
+  }
+}
+
+/* ---- Shell: floating chrome over the one scroll container -------------- */
+.shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "content";
+  --chrome-top: calc(var(--topbar-h) + var(--subnav-h));
+}
+.shell--nosub {
+  --chrome-top: var(--topbar-h);
+}
+.shell > .topbar,
+.shell > .subnav,
+.shell > .main,
+.shell > .tabbar {
+  grid-area: content;
+}
+.shell > .topbar {
+  align-self: start;
+  z-index: 30;
+}
+.shell > .subnav {
+  align-self: start;
+  margin-top: var(--topbar-h);
+  z-index: 29;
+}
+.shell > .tabbar {
+  align-self: end;
+  z-index: 30;
+}
+.main {
+  padding-top: var(--chrome-top);
+  padding-bottom: var(--chrome-bottom);
+  scroll-padding-top: calc(var(--chrome-top) + var(--s-4));
+  scroll-padding-bottom: calc(var(--chrome-bottom) + var(--s-4));
+}
+/* Sticky children (table headers, bulk bar, doc TOC) keep top: 0 / small
+   offsets: the sticky view rectangle already excludes the padding above,
+   so they stop just under the floating chrome. */
+
+/* ---- Glass material ------------------------------------------------------ */
+.topbar,
+.subnav,
+.tabbar,
+.palette,
+.composer,
+.batch-bar {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+.topbar {
+  box-shadow: inset 0 -1px 0 transparent;
+  transition: box-shadow var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out);
+}
+.shell[data-scrolled] .topbar,
+.shell[data-scrolled] .subnav {
+  background: var(--glass-bg-strong);
+}
+.shell[data-scrolled].shell--nosub .topbar,
+.shell[data-scrolled] .subnav {
+  box-shadow: inset 0 -1px 0 var(--border), 0 6px 18px -12px rgba(15, 23, 42, 0.22);
+}
+.subnav {
+  box-shadow: inset 0 -1px 0 transparent;
+  transition: box-shadow var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out);
+}
+.tabbar {
+  box-shadow: inset 0 1px 0 var(--border), 0 -6px 18px -12px rgba(15, 23, 42, 0.2);
+}
+.palette {
+  background: var(--glass-bg-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--glass-edge), var(--shadow-float);
+}
+.palette-scrim,
+.dialog-scrim,
+.sheet-scrim {
+  background: rgba(11, 18, 32, 0.24);
+}
+.sheet {
+  background: var(--glass-bg-sheet);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-radius: var(--r-xl);
+  box-shadow: var(--glass-edge), var(--shadow-float);
+}
+.dialog {
+  border-radius: var(--r-xl);
+}
+.toast2 {
+  background: var(--glass-bg-dark);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 14px 34px -10px rgba(15, 23, 42, 0.5);
+}
+.composer {
+  background: var(--glass-bg-strong);
+  box-shadow: var(--glass-edge), 0 8px 24px -12px rgba(15, 23, 42, 0.22);
+}
+.batch-bar {
+  background: var(--glass-bg-strong);
+}
+
+/* sticky table headers frost while rows scroll under them */
+.dt thead th {
+  background: rgba(250, 251, 252, 0.86);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
+  backdrop-filter: saturate(160%) blur(12px);
+}
+.bulkbar {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-radius: var(--r-md);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .topbar,
+  .subnav,
+  .tabbar,
+  .palette,
+  .composer,
+  .batch-bar,
+  .sheet,
+  .bulkbar,
+  .dt thead th {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .dt thead th {
+    background: var(--surface-subtle);
+  }
+  .toast2 {
+    background: #0f172a;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .topbar,
+  .subnav,
+  .tabbar,
+  .palette,
+  .composer,
+  .batch-bar,
+  .sheet,
+  .bulkbar {
+    background: var(--surface);
+  }
+  .toast2 {
+    background: #0f172a;
+  }
+}
+
+/* ---- Left nav (desktop): grouped, foldable ------------------------------ */
+.sidenav {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .shell {
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
+    grid-template-areas: "side content";
+    --chrome-top: var(--topbar-h);
+  }
+  .shell > .subnav,
+  .topbar .primary-nav,
+  .topbar .brand--top {
+    display: none;
+  }
+  .sidenav {
+    grid-area: side;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--surface-subtle);
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+  .sidenav > .brand {
+    flex: none;
+    height: var(--topbar-h);
+    padding: 0 var(--s-4);
+    border-radius: 0;
+  }
+  .sidenav-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--s-2) var(--s-3) var(--s-5);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+.sidenav-item,
+.sidenav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  transition: color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out), transform var(--dur-spring) var(--ease-spring);
+}
+.sidenav-item svg,
+.sidenav-group-head > svg:first-child {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  opacity: 0.85;
+}
+.sidenav-item:hover,
+.sidenav-group-head:hover {
+  color: var(--text);
+  background: var(--sunken);
+}
+.sidenav-item:active,
+.sidenav-group-head:active {
+  transform: scale(0.98);
+}
+.sidenav-item[aria-current="page"] {
+  color: var(--accent-ink);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+.sidenav-item[aria-current="page"] svg {
+  color: var(--accent);
+  opacity: 1;
+}
+.sidenav-item .badge-count {
+  margin-left: auto;
+}
+.sidenav-group {
+  margin-top: var(--s-2);
+}
+.sidenav-group-head {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.sidenav-group.is-active > .sidenav-group-head > svg:first-child {
+  color: var(--accent);
+}
+.sidenav-group-label {
+  flex: 1;
+}
+.sidenav-chev {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+  transform: rotate(-90deg);
+  transition: transform var(--dur-spring) var(--ease-spring);
+}
+.sidenav-group.is-open .sidenav-chev {
+  transform: rotate(0deg);
+}
+.sidenav-group.is-active .sidenav-chev {
+  opacity: 0.4;
+}
+.sidenav-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition: grid-template-rows var(--dur-spring) var(--ease-spring), visibility 0s linear var(--dur-spring);
+}
+.sidenav-group.is-open > .sidenav-fold {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows var(--dur-spring) var(--ease-spring), visibility 0s;
+}
+.sidenav-list {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 25px;
+}
+.sidenav-list .sidenav-item {
+  min-height: 30px;
+  position: relative;
+}
+.sidenav-list .sidenav-item::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: var(--r-full);
+  background: transparent;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+.sidenav-list .sidenav-item[aria-current="page"]::before {
+  background: var(--accent);
+}
+
+/* ---- Mobile: chrome + bottom tab bar both float -------------------------- */
+@media (max-width: 767px) {
+  .shell {
+    --chrome-bottom: var(--tabbar-h);
+  }
+  .shell > .tabbar {
+    display: flex;
+  }
+}
+
+/* ---- Spring motion on floating layers ----------------------------------- */
+.sheet {
+  animation: sheet-spring var(--dur-spring) var(--ease-spring);
+}
+@keyframes sheet-spring {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+.palette {
+  animation: pop-spring var(--dur-spring) var(--ease-spring);
+}
+.dialog {
+  animation: pop-spring var(--dur-spring) var(--ease-spring);
+}
+@keyframes pop-spring {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  35% {
+    opacity: 1;
+  }
+}
+.toast2 {
+  animation: toast-spring var(--dur-spring) var(--ease-spring);
+}
+@keyframes toast-spring {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  35% {
+    opacity: 1;
+  }
+}
+.subnav-indicator {
+  transition: transform var(--dur-spring) var(--ease-spring), width var(--dur-spring) var(--ease-spring);
+}
+.btn {
+  transition-property: background-color, color, box-shadow, transform;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.975);
+  transition: transform 90ms var(--ease-out);
+}
+@media (max-width: 767px) {
+  .sheet {
+    animation-name: sheet-up-spring;
+  }
+  @keyframes sheet-up-spring {
+    from {
+      transform: translateY(48px);
+      opacity: 0;
+    }
+    40% {
+      opacity: 1;
+    }
+  }
+}
+
+/* risk cells: the bar may shrink, the value never clips into the next cell */
+.dt td.num:has(> .risk) {
+  width: 160px;
+  max-width: none;
+}
+.risk-val {
+  min-width: 6ch;
+  white-space: nowrap;
+}
+
+/* lifecycle stepper: labels wrap inside their own column, never collide */
+.step-label {
+  min-width: 0;
+  padding-right: var(--s-1);
+  line-height: 1.3;
+}
+@media (max-width: 767px) {
+  .step-label {
+    font-size: var(--fs-2xs);
+  }
+}

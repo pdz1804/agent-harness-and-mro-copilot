@@ -219,3 +219,38 @@ def test_create_work_order_succeeds_with_valid_args_and_approver(deps, loaded_st
 def test_acknowledge_alert_invalid_transition_raises_model_retry(deps):
     with pytest.raises(ModelRetry):
         copilot_tools.acknowledge_alert(_ctx(deps), alert_id=999999, note="test")
+
+
+def _seed_alert(engine, component_id: str, aircraft_id: str) -> int:
+    with engine.connect() as conn:
+        res = conn.execute(ops_db.alerts.insert().values(
+            component_id=component_id, aircraft_id=aircraft_id, component_type="HYD_PUMP",
+            opened_at="2026-09-30T00:00:00+00:00", window_key="W1", risk_score=0.99, threshold=0.94,
+            status="acknowledged",
+        ))
+        conn.commit()
+        return int(res.inserted_primary_key[0])
+
+
+def test_create_work_order_links_the_runs_alert_and_moves_it_to_wo_raised(engine, deps, loaded_store):
+    row = loaded_store.test_latest_df[loaded_store.test_latest_df["component_type"] == "HYD_PUMP"].iloc[0]
+    deps.alert_id = _seed_alert(engine, row["component_id"], row["aircraft_id"])
+    result = copilot_tools.create_work_order(
+        _ctx(deps), aircraft_id=row["aircraft_id"], component_id=row["component_id"],
+        task_ref="AMM-29-11-00-HYD-PUMP", priority="urgent", justification="risk elevated",
+    )
+    assert result["alert_id"] == deps.alert_id
+    with engine.connect() as conn:
+        status = conn.execute(ops_db.alerts.select().where(ops_db.alerts.c.id == deps.alert_id)).mappings().first()["status"]
+    assert status == "wo_raised"
+
+
+def test_create_work_order_does_not_link_an_alert_for_another_component(engine, deps, loaded_store):
+    hyd = loaded_store.test_latest_df[loaded_store.test_latest_df["component_type"] == "HYD_PUMP"]
+    first, other = hyd.iloc[0], hyd.iloc[1]
+    deps.alert_id = _seed_alert(engine, other["component_id"], other["aircraft_id"])
+    result = copilot_tools.create_work_order(
+        _ctx(deps), aircraft_id=first["aircraft_id"], component_id=first["component_id"],
+        task_ref="AMM-29-11-00-HYD-PUMP", priority="routine", justification="risk elevated",
+    )
+    assert result["alert_id"] is None

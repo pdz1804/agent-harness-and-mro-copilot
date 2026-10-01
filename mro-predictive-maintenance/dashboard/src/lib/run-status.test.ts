@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveStatus, isSettledAfterResume, isStaleRun, workOrderIdFromResult } from "./run-status";
+import { effectiveStatus, isSettledAfterResume, isStaleRun, runStatusLabel, workOrderIdFromResult } from "./run-status";
 import type { CopilotPendingItem } from "../types";
 
 const actionable: CopilotPendingItem = { id: "p1", kind: "approval", tool_name: "create_work_order", args: {}, question: null, is_stale: false };
@@ -59,5 +59,13 @@ describe("workOrderIdFromResult", () => {
     expect(workOrderIdFromResult({ role: "tool_result", content: '{"id":"WO-2026-0012"}' })).toBe("WO-2026-0012");
     expect(workOrderIdFromResult({ role: "tool_result", content: '{"id":"ALERT-3"}' })).toBeNull();
     expect(workOrderIdFromResult(null)).toBeNull();
+  });
+});
+
+describe("runStatusLabel", () => {
+  it("humanizes API run statuses", () => {
+    expect(runStatusLabel("awaiting_input")).toBe("Awaiting input");
+    expect(runStatusLabel("completed")).toBe("Completed");
+    expect(runStatusLabel("")).toBe("");
   });
 });

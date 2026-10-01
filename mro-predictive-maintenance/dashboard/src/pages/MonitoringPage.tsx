@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
+import { useRetrainJob } from "../hooks/useRetrainJob";
+import { RETRAIN_USER } from "../lib/retrain";
+import { ConfirmDialog, humanError, useToast } from "../components/ui/feedback";
 import { getDrift, getDriftHistory, getPerformance, getRegistryStatus } from "../lib/api";
 import { useAsync } from "../hooks/useAsync";
-import { driftTimelineNote, monitoredLookup, normalizeDrift, normalizeDriftHistory } from "../lib/drift";
+import { PSI_BANDS, driftTimelineNote, monitoredLookup, normalizeDrift, normalizeDriftHistory } from "../lib/drift";
 import { driftLabel, driftTone } from "../lib/labels";
 import { formatDecimal, formatPct, humanizeFeatureName } from "../lib/format";
 import { championVersion } from "../lib/models";
@@ -10,10 +13,10 @@ import { asLiveOutcomes } from "../lib/risk";
 import { DriftTimelineChart } from "../components/charts/charts";
 import { RetrainPanel } from "../components/RetrainPanel";
 import { DataTable, type Column } from "../components/ui/data-table";
-import { ButtonLink, Chip, PageHead, Panel, StatBar, Switch } from "../components/ui/primitives";
+import { Button, ButtonLink, Chip, PageHead, Panel, StatBar, Switch } from "../components/ui/primitives";
 import { EmptyState, LoadingRows, Notice, ServiceStatusBanner } from "../components/ui/states";
-import { ActivityIcon, ChartIcon, FileIcon, GaugeIcon } from "../components/ui/icons";
-import type { DashboardData, RegistryVersion } from "../types";
+import { ActivityIcon, ChartIcon, FileIcon, GaugeIcon, RefreshIcon, ZapIcon } from "../components/ui/icons";
+import type { DashboardData, DriftReport, RegistryVersion } from "../types";
 
 /** PSI bar scale: 0 .. PSI_MAX. The warn/alert bands are drawn on the track. */
 const PSI_MAX = 0.4;
@@ -30,8 +33,37 @@ export function MonitoringPage({ data }: { data: DashboardData }) {
   const histReq = useAsync(() => getDriftHistory(30, 50), []);
   const perfReq = useAsync(() => getPerformance(), []);
   const regReq = useAsync(() => getRegistryStatus(), []);
+  const retrain = useRetrainJob();
+  const toast = useToast();
+  const [checking, setChecking] = useState(false);
+  const [confirmRetrain, setConfirmRetrain] = useState(false);
 
-  const drift = useMemo(() => (driftReq.data ? normalizeDrift(driftReq.data) : null), [driftReq.data]);
+  /** A real (never simulated) check: `GET /monitoring/drift` records a PSI
+   * snapshot, then the timeline and the summary reload. */
+  const runDriftCheck = async () => {
+    setChecking(true);
+    try {
+      const raw = await getDrift(30);
+      const report = normalizeDrift(raw);
+      setChecked(raw);
+      histReq.reload();
+      toast.show({
+        tone: report.overall === "alert" ? "warn" : report.overall === "warn" ? "info" : "good",
+        message: `Drift check recorded: ${driftLabel(report.overall)}`,
+        detail: `score PSI ${report.scorePsi !== null ? formatDecimal(report.scorePsi, 4) : "n/a"} · ${report.nCurrent ?? 0} current rows`,
+      });
+    } catch (err) {
+      toast.show({ tone: "error", message: "Drift check failed.", detail: humanError(err) });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // A manual check's report replaces the page-load one (real data only; the
+  // simulated view always comes from its own request).
+  const [checked, setChecked] = useState<DriftReport | null>(null);
+  const shown = !simulate && checked ? checked : driftReq.data;
+  const drift = useMemo(() => (shown ? normalizeDrift(shown) : null), [shown]);
   const timeline = useMemo(() => normalizeDriftHistory(histReq.data, monitoredLookup(drift?.rows)), [histReq.data, drift]);
   const outcomes = asLiveOutcomes(perfReq.data?.live_outcomes);
   const primary = data.models.find((m) => m.is_primary) ?? data.models[0];
@@ -39,8 +71,8 @@ export function MonitoringPage({ data }: { data: DashboardData }) {
 
   const monitored = drift?.rows.filter((r) => r.monitored) ?? [];
   const unmonitored = drift?.rows.filter((r) => !r.monitored) ?? [];
-  const warnAt = drift?.warnAt ?? 0.1;
-  const alertAt = drift?.alertAt ?? 0.25;
+  const warnAt = drift?.warnAt ?? PSI_BANDS.warn;
+  const alertAt = drift?.alertAt ?? PSI_BANDS.alert;
   const inspected = outcomes ? outcomes.confirmed_failure + outcomes.nff : 0;
   const champion = registry ? championVersion(registry.versions) : null;
 
@@ -60,7 +92,25 @@ export function MonitoringPage({ data }: { data: DashboardData }) {
       <PageHead
         title="Monitoring"
         description="Input and score drift, the live outcome loop, the retrain gate and the model registry."
-        actions={<Switch checked={simulate} onChange={setSimulate}>Simulate shift <code>?simulate=shift</code></Switch>}
+        actions={
+          <>
+            <Switch checked={simulate} onChange={setSimulate}>Simulate shift <code>?simulate=shift</code></Switch>
+            <Button onClick={runDriftCheck} loading={checking}>
+              <RefreshIcon />
+              {checking ? "Checking…" : "Run drift check"}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setConfirmRetrain(true)}
+              loading={retrain.starting}
+              disabled={!retrain.allowed || retrain.running}
+              title={retrain.allowed ? undefined : `Only ${RETRAIN_USER} can start a retrain. You are acting as ${retrain.user}.`}
+            >
+              <ZapIcon />
+              {retrain.running ? `Retraining… ${retrain.elapsed}s` : "Retrain"}
+            </Button>
+          </>
+        }
       />
 
       {driftReq.error && <ServiceStatusBanner message={driftReq.error} onRetry={driftReq.reload} />}
@@ -76,7 +126,7 @@ export function MonitoringPage({ data }: { data: DashboardData }) {
           <StatBar
             label="Drift summary"
             items={[
-              { icon: <GaugeIcon />, label: "Overall", value: <Chip tone={driftTone(drift.overall)}>{driftLabel(drift.overall)}</Chip>, sub: `warn above ${warnAt}, alert above ${alertAt}` },
+              { icon: <GaugeIcon />, label: "Overall", value: <Chip tone={driftTone(drift.overall)}>{driftLabel(drift.overall)}</Chip>, sub: `Watch from ${warnAt}, Drift from ${alertAt}` },
               {
                 icon: <ActivityIcon />,
                 label: "Score PSI",
@@ -177,7 +227,7 @@ export function MonitoringPage({ data }: { data: DashboardData }) {
           )}
         </Panel>
 
-        <RetrainPanel />
+        <RetrainPanel retrain={retrain} />
       </div>
 
       <Panel
@@ -194,6 +244,21 @@ export function MonitoringPage({ data }: { data: DashboardData }) {
           <DataTable label="Model registry versions" rows={registry.versions} columns={regColumns} rowKey={(v) => String(v.version)} defaultSort={{ key: "v", dir: "desc" }} />
         )}
       </Panel>
+
+      {confirmRetrain && (
+        <ConfirmDialog
+          title="Retrain the realistic profile?"
+          confirmLabel="Yes, retrain"
+          onCancel={() => setConfirmRetrain(false)}
+          onConfirm={() => {
+            setConfirmRetrain(false);
+            void retrain.start(false);
+          }}
+        >
+          This retrains the realistic profile and checks the challenger against the champion. It rewrites <code>reports/realistic</code> and never promotes from
+          here (use the Retrain gate below to opt in). The served model does not change until the service restarts.
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

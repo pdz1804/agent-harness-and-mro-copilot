@@ -79,10 +79,12 @@
   --s-12: 48px;
 
   /* shape */
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
+  /* radius scale: 6 / 10 / 14 / 20 / pill. Nothing is a sharp rectangle. */
+  --r-xs: 6px; /* alias kept for older call sites */
+  --r-sm: 6px; /* kbd, code, tiny chips */
+  --r-md: 10px; /* buttons, inputs, rows, nav items */
+  --r-lg: 14px; /* cards, panels, popovers, toasts */
+  --r-xl: 20px; /* sheets, palette, dialogs */
   --r-full: 999px;
 
   /* control heights */
@@ -193,7 +195,7 @@ code,
 }
 code {
   background: var(--sunken);
-  border-radius: var(--r-xs);
+  border-radius: var(--r-sm);
   padding: 1px 5px;
   box-shadow: inset 0 0 0 1px var(--border);
 }
@@ -258,25 +260,7 @@ textarea {
 :focus:not(:focus-visible) {
   outline: none;
 }
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
-}
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, 0.28);
-  background-clip: content-box;
-  border: 2px solid transparent;
-}
+/* scrollbars: see material.css */
 
 .skip-link {
   position: absolute;

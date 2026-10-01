@@ -61,6 +61,13 @@ def can_approve(user: str) -> bool:
     return role_for(user) in APPROVER_ROLES
 
 
+def can_write(user: str) -> bool:
+    """Whether ``user`` may change operational data (alerts, work orders,
+    aircraft status, fleet scans, automations). The ``viewer`` role is
+    read-only everywhere; it can still read and ask the copilot questions."""
+    return role_for(user) != "viewer"
+
+
 # Identities allowed to trigger a model retrain. An explicit allow-list (not a
 # role): "engineer" is also the default role of every unknown actor string and
 # of `planner`, none of whom may start a retrain.
@@ -75,4 +82,4 @@ def seeded_users() -> list[SeededUser]:
     return [SeededUser(id=u, label=u, role=ROLES[u]) for u in SEEDED_USERS]
 
 
-__all__ = ["SEEDED_USERS", "ROLES", "DEFAULT_ROLE", "APPROVER_ROLES", "SeededUser", "role_for", "can_approve", "RETRAIN_USERS", "can_retrain", "seeded_users"]
+__all__ = ["SEEDED_USERS", "ROLES", "DEFAULT_ROLE", "APPROVER_ROLES", "SeededUser", "role_for", "can_approve", "can_write", "RETRAIN_USERS", "can_retrain", "seeded_users"]

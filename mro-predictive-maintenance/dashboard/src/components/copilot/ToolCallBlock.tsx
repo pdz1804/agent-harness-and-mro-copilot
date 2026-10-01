@@ -163,11 +163,11 @@ export function ToolCallBlock({ item, onDraftChange, drafted, localDecision, onN
         </span>
         <span className="tcb-title">
           {label && <span className="tcb-label">{label}</span>}
-          <span className="tcb-name">{item.toolName}</span>
+          <span className="tcb-name" title={item.toolName}>{item.toolName}</span>
         </span>
         <span className="tcb-status">
           {prefix && <span className="tcb-status-prefix">{prefix}</span>}
-          {status}
+          <span className="tcb-status-word">{status}</span>
         </span>
         <span className="tcb-chev" aria-hidden="true">
           <ChevronRightIcon />

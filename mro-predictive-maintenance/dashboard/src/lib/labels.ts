@@ -2,12 +2,12 @@ import type { Tone } from "./risk";
 
 /** Honest wording shared across pages. */
 
-/** Drift never reads "quiet": an unshifted, healthy detector says "no alert". */
+/** PSI bands in the design's words: Stable < warn <= Watch < alert <= Drift. */
 export function driftLabel(status: string): string {
-  if (status === "alert") return "alert";
-  if (status === "warn") return "warn";
-  if (status === "insufficient_data") return "insufficient data";
-  return "no alert";
+  if (status === "alert") return "Drift";
+  if (status === "warn") return "Watch";
+  if (status === "insufficient_data") return "Insufficient data";
+  return "Stable";
 }
 
 export function driftTone(status: string): Tone {
