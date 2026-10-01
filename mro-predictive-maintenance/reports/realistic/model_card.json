@@ -1,0 +1,282 @@
+{
+  "profile": "realistic",
+  "model_id": "hist_gradient_boosting",
+  "seed": 42,
+  "trained_at": "2026-09-30T09:03:52.552856+00:00",
+  "threshold": 0.01,
+  "threshold_status": "target_met",
+  "val_status": "target_met",
+  "test_status": "target_met",
+  "target": {
+    "min_recall": 0.8,
+    "max_alerts_per_100": 5.0
+  },
+  "val_metrics": {
+    "n_rows": 2676,
+    "n_positive": 51,
+    "roc_auc": 0.9836265172735762,
+    "pr_auc": 0.6873548040067221
+  },
+  "test_metrics": {
+    "n_rows": 2598,
+    "n_positive": 25,
+    "roc_auc": 0.9813447337738048,
+    "pr_auc": 0.20272932929668958
+  },
+  "test_at_threshold": {
+    "threshold": 0.01,
+    "tp": 23,
+    "fp": 74,
+    "fn": 2,
+    "tn": 2499,
+    "recall": 0.92,
+    "precision": 0.23711340206185566,
+    "alerts_per_100": 3.733641262509623,
+    "n_alerts": 97,
+    "n_rows": 2598
+  },
+  "served_policy": "max_recall_within_budget",
+  "threshold_policies": {
+    "min_alerts": {
+      "threshold": 0.5841,
+      "recall": 0.8431372549019608,
+      "precision": 0.6417910447761194,
+      "alerts_per_100": 2.5037369207772797,
+      "n_alerts": 67.0,
+      "tp": 43.0,
+      "fp": 24.0,
+      "fn": 8.0,
+      "status": "both_constraints_met",
+      "target_recall": 0.8,
+      "target_alerts_per_100": 5.0
+    },
+    "max_recall_within_budget": {
+      "threshold": 0.01,
+      "recall": 0.9607843137254902,
+      "precision": 0.5268817204301075,
+      "alerts_per_100": 3.475336322869955,
+      "n_alerts": 93.0,
+      "tp": 49.0,
+      "fp": 44.0,
+      "fn": 2.0,
+      "status": "within_budget",
+      "alerts_budget": 5.0,
+      "policy": "max_recall_within_budget"
+    },
+    "min_expected_cost": {
+      "threshold": 0.01,
+      "recall": 0.9607843137254902,
+      "precision": 0.5268817204301075,
+      "alerts_per_100": 3.475336322869955,
+      "n_alerts": 93.0,
+      "tp": 49.0,
+      "fp": 44.0,
+      "fn": 2.0,
+      "expected_cost": 166000.0,
+      "status": "within_budget",
+      "alerts_budget": 5.0,
+      "cost_missed_removal": 50000.0,
+      "cost_false_alert": 1500.0,
+      "policy": "min_expected_cost"
+    }
+  },
+  "calibration": {
+    "brier_pre": 0.015715196194859563,
+    "brier_post": 0.009642766906466376,
+    "ece_pre": 0.032455375127157696,
+    "ece_post": 0.002652429675053445,
+    "reliability_curve_pre": [
+      {
+        "bin_lo": 0.0,
+        "bin_hi": 0.1,
+        "mean_predicted": 0.018702291022189257,
+        "observed_frequency": 0.0007803355442840422,
+        "n": 2563
+      },
+      {
+        "bin_lo": 0.1,
+        "bin_hi": 0.2,
+        "mean_predicted": 0.1437043157834702,
+        "observed_frequency": 0.0,
+        "n": 18
+      },
+      {
+        "bin_lo": 0.2,
+        "bin_hi": 0.3,
+        "mean_predicted": 0.22880485065961328,
+        "observed_frequency": 0.0,
+        "n": 2
+      },
+      {
+        "bin_lo": 0.3,
+        "bin_hi": 0.4,
+        "mean_predicted": 0.3458397666144142,
+        "observed_frequency": 0.4,
+        "n": 5
+      },
+      {
+        "bin_lo": 0.4,
+        "bin_hi": 0.5,
+        "mean_predicted": 0.4665451534184549,
+        "observed_frequency": 0.0,
+        "n": 1
+      },
+      {
+        "bin_lo": 0.6,
+        "bin_hi": 0.7,
+        "mean_predicted": 0.6772767871097429,
+        "observed_frequency": 0.0,
+        "n": 1
+      },
+      {
+        "bin_lo": 0.7,
+        "bin_hi": 0.8,
+        "mean_predicted": 0.734252887921779,
+        "observed_frequency": 0.25,
+        "n": 4
+      },
+      {
+        "bin_lo": 0.8,
+        "bin_hi": 0.9,
+        "mean_predicted": 0.8477226906163171,
+        "observed_frequency": 0.6666666666666666,
+        "n": 3
+      },
+      {
+        "bin_lo": 0.9,
+        "bin_hi": 1.0,
+        "mean_predicted": 0.9870572384049248,
+        "observed_frequency": 0.5569620253164557,
+        "n": 79
+      }
+    ],
+    "reliability_curve_post": [
+      {
+        "bin_lo": 0.0,
+        "bin_hi": 0.1,
+        "mean_predicted": 0.000910178230563041,
+        "observed_frequency": 0.0019275250578257518,
+        "n": 2594
+      },
+      {
+        "bin_lo": 0.1,
+        "bin_hi": 0.2,
+        "mean_predicted": 0.11145607173378536,
+        "observed_frequency": 0.6666666666666666,
+        "n": 3
+      },
+      {
+        "bin_lo": 0.2,
+        "bin_hi": 0.3,
+        "mean_predicted": 0.28615238571707646,
+        "observed_frequency": 0.0,
+        "n": 1
+      },
+      {
+        "bin_lo": 0.4,
+        "bin_hi": 0.5,
+        "mean_predicted": 0.4188283715951593,
+        "observed_frequency": 1.0,
+        "n": 1
+      },
+      {
+        "bin_lo": 0.5,
+        "bin_hi": 0.6,
+        "mean_predicted": 0.5834538745662725,
+        "observed_frequency": 0.5584415584415584,
+        "n": 77
+      }
+    ],
+    "method": "sigmoid",
+    "n_val_cal_rows": 2755,
+    "n_val_cal_positive": 49,
+    "fallback_to_sigmoid": true
+  },
+  "ci": {
+    "n_boot": 1000,
+    "confidence_level": 0.95,
+    "recall_ci": [
+      0.8181818181818182,
+      1.0
+    ],
+    "precision_ci": [
+      0.13327102803738322,
+      0.34909307527718336
+    ],
+    "alerts_per_100_ci": [
+      2.932652118823335,
+      4.585168296589494
+    ]
+  },
+  "alert_rate_definition": "component_window: per 30-day window, latest snapshot per active component, share alerting, averaged over windows -- see src/evaluation.alerts_per_100_components",
+  "alert_rate": {
+    "component_window_alerts_per_100": 3.125550957944443,
+    "n_windows": 31,
+    "row_based_alerts_per_100": 3.733641262509623,
+    "window_days": 30
+  },
+  "baselines": {
+    "baseline_age_rule": {
+      "threshold": 0.8811,
+      "test_at_threshold": {
+        "threshold": 0.8811,
+        "tp": 1,
+        "fp": 0,
+        "fn": 24,
+        "tn": 2573,
+        "recall": 0.04,
+        "precision": 1.0,
+        "alerts_per_100": 0.03849114703618168,
+        "n_alerts": 1,
+        "n_rows": 2598
+      },
+      "ci": {
+        "n_boot": 1000,
+        "confidence_level": 0.95,
+        "recall_ci": [
+          0.0,
+          0.10714285714285714
+        ],
+        "precision_ci": [
+          1.0,
+          1.0
+        ],
+        "alerts_per_100_ci": [
+          0.0,
+          0.11864403177913276
+        ]
+      }
+    },
+    "baseline_fault_count_rule": {
+      "threshold": 0.7376,
+      "test_at_threshold": {
+        "threshold": 0.7376,
+        "tp": 12,
+        "fp": 40,
+        "fn": 13,
+        "tn": 2533,
+        "recall": 0.48,
+        "precision": 0.23076923076923078,
+        "alerts_per_100": 2.001539645881447,
+        "n_alerts": 52,
+        "n_rows": 2598
+      },
+      "ci": {
+        "n_boot": 1000,
+        "confidence_level": 0.95,
+        "recall_ci": [
+          0.23068181818181827,
+          0.7143973214285714
+        ],
+        "precision_ci": [
+          0.1052357456140351,
+          0.3529718137254902
+        ],
+        "alerts_per_100_ci": [
+          1.35586848477125,
+          2.769122286309473
+        ]
+      }
+    }
+  }
+}

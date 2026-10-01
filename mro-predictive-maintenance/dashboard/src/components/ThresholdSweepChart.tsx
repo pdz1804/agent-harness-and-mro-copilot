@@ -35,19 +35,19 @@ function SweepTooltip({
   const row = payload[0].payload;
   return (
     <div className="rc-tooltip">
-      <div className="rc-tooltip__row">
+      <div className="rc-tooltip-row">
         <span>threshold</span>
         <span>{row.threshold.toFixed(4)}</span>
       </div>
-      <div className="rc-tooltip__row">
+      <div className="rc-tooltip-row">
         <span>recall</span>
         <span>{formatPct(row.recall)}</span>
       </div>
-      <div className="rc-tooltip__row">
+      <div className="rc-tooltip-row">
         <span>alerts/100</span>
         <span>{formatDecimal(row.alerts_per_100)}</span>
       </div>
-      <div className="rc-tooltip__row">
+      <div className="rc-tooltip-row">
         <span>precision</span>
         <span>{formatPct(row.precision)}</span>
       </div>
@@ -75,10 +75,10 @@ export function ThresholdSweepChart({
     .sort((a, b) => a.alerts_per_100 - b.alerts_per_100);
 
   return (
-    <div className="chart-wrap">
+    <div className="chart-box">
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
-          <CartesianGrid stroke="var(--panel-border)" vertical={false} />
+          <CartesianGrid stroke="#dde2e8" vertical={false} />
           <XAxis
             dataKey="alerts_per_100"
             type="number"
@@ -89,9 +89,9 @@ export function ThresholdSweepChart({
               position: "insideBottom",
               offset: -4,
               fontSize: 11,
-              fill: "var(--text-tertiary)",
+              fill: "#5a6772",
             }}
-            stroke="var(--panel-border-strong)"
+            stroke="#dde2e8"
           />
           <YAxis
             dataKey="recall"
@@ -99,18 +99,18 @@ export function ThresholdSweepChart({
             domain={[0, 1]}
             tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
             width={44}
-            stroke="var(--panel-border-strong)"
+            stroke="#dde2e8"
           />
-          <Tooltip content={<SweepTooltip />} cursor={{ stroke: "var(--panel-border-strong)" }} />
+          <Tooltip content={<SweepTooltip />} cursor={{ stroke: "#dde2e8" }} />
           <ReferenceLine
             y={target.min_recall}
-            stroke="var(--status-neutral-fg)"
+            stroke="#101820"
             strokeDasharray="4 4"
             strokeOpacity={0.6}
           />
           <ReferenceLine
             x={target.max_alerts_per_100}
-            stroke="var(--status-neutral-fg)"
+            stroke="#101820"
             strokeDasharray="4 4"
             strokeOpacity={0.6}
           />
@@ -127,23 +127,23 @@ export function ThresholdSweepChart({
             y={valPoint.recall}
             r={5}
             fill={color}
-            stroke="var(--bg)"
+            stroke="#ffffff"
             strokeWidth={2}
           />
           <ReferenceDot
             x={testPoint.alerts_per_100}
             y={testPoint.recall}
             r={5}
-            fill="var(--text-primary)"
+            fill="#101820"
             stroke={color}
             strokeWidth={2}
           />
         </LineChart>
       </ResponsiveContainer>
-      <div className="chart-caption">
+      <div className="legend" style={{ marginTop: 8 }}>
         <span style={{ color }}>&#9679;</span> validation operating point (threshold{" "}
         {valPoint.threshold.toFixed(4)}) &nbsp;&nbsp;
-        <span style={{ color: "var(--text-primary)" }}>&#9679;</span> same threshold applied to
+        <span style={{ color: "#101820" }}>&#9679;</span> same threshold applied to
         held-out test &nbsp;&nbsp; dashed lines: target ({formatPct(target.min_recall, 0)} recall,{" "}
         {formatDecimal(target.max_alerts_per_100, 1)} alerts/100)
       </div>

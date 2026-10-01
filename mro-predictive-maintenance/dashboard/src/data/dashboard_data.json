@@ -1197,11 +1197,11 @@
       {
         "threshold": 0.5544,
         "recall": 0.9339622641509434,
-        "precision": 0.5129533678756477,
-        "alerts_per_100": 3.796970293133976,
-        "n_alerts": 193,
+        "precision": 0.515625,
+        "alerts_per_100": 3.777296871926028,
+        "n_alerts": 192,
         "tp": 99,
-        "fp": 94,
+        "fp": 93,
         "fn": 7
       },
       {
@@ -4083,38 +4083,38 @@
     "logistic_regression": [
       {
         "feature": "check_count_last_1500cyc",
-        "importance_mean": 0.41199760572686317,
-        "importance_std": 0.044201572098094624
+        "importance_mean": 0.41205190750085974,
+        "importance_std": 0.044210800259460684
       },
       {
         "feature": "vibration_mm_s",
-        "importance_mean": 0.20615375453942647,
-        "importance_std": 0.01682421561098131
+        "importance_mean": 0.20614947140638779,
+        "importance_std": 0.016821657055887475
       },
       {
         "feature": "temperature_delta_c",
-        "importance_mean": 0.20109981818059816,
-        "importance_std": 0.018197808730754644
+        "importance_mean": 0.20109077487117738,
+        "importance_std": 0.018208110088422536
       },
       {
         "feature": "pressure_delta_psi",
-        "importance_mean": 0.12065483954767446,
-        "importance_std": 0.02041678500161725
+        "importance_mean": 0.12065669971042892,
+        "importance_std": 0.020417669056950933
       },
       {
         "feature": "component_type",
-        "importance_mean": 0.07925325904645877,
-        "importance_std": 0.01603315903554221
+        "importance_mean": 0.07926923752163609,
+        "importance_std": 0.016065179786073094
       },
       {
         "feature": "current_draw_amp",
-        "importance_mean": 0.0638722706474857,
-        "importance_std": 0.013993180456890856
+        "importance_mean": 0.06387642899754402,
+        "importance_std": 0.013994156439268428
       },
       {
         "feature": "component_age_cycles",
-        "importance_mean": 0.05147877331354258,
-        "importance_std": 0.00823679942678326
+        "importance_mean": 0.051473107703065436,
+        "importance_std": 0.008236574794634051
       },
       {
         "feature": "airflow_cfm",
@@ -4123,23 +4123,23 @@
       },
       {
         "feature": "stroke_time_s",
-        "importance_mean": 0.0036497456872915056,
-        "importance_std": 0.0003748070833191933
+        "importance_mean": 0.0036495788326352586,
+        "importance_std": 0.0003748563434990294
       },
       {
         "feature": "aircraft_type",
-        "importance_mean": 0.000547979223006001,
-        "importance_std": 0.0011856610098768675
+        "importance_mean": 0.0005473003866220738,
+        "importance_std": 0.0011848652259238968
       },
       {
         "feature": "cycles_per_day",
-        "importance_mean": 5.063988148231724e-05,
-        "importance_std": 0.0014745224893195157
+        "importance_mean": 4.175210655064099e-05,
+        "importance_std": 0.0014727514560737168
       },
       {
         "feature": "max_severity_last_500cyc",
-        "importance_mean": 3.6353133666922056e-05,
-        "importance_std": 0.0003624039771346922
+        "importance_mean": 3.6877042577498906e-05,
+        "importance_std": 0.0003624835923561937
       },
       {
         "feature": "cycles_since_last_check",
@@ -4153,13 +4153,13 @@
       },
       {
         "feature": "avg_flight_hours_per_cycle",
-        "importance_mean": -0.00031139330896439165,
-        "importance_std": 0.0012629711273656051
+        "importance_mean": -0.00031564522885337845,
+        "importance_std": 0.0012626351351167206
       },
       {
         "feature": "fault_count_last_500cyc",
-        "importance_mean": -0.0004703284411878061,
-        "importance_std": 0.00212828953313045
+        "importance_mean": -0.0004708450582046497,
+        "importance_std": 0.002128877764592599
       },
       {
         "feature": "region",
@@ -4168,13 +4168,13 @@
       },
       {
         "feature": "aircraft_age_years",
-        "importance_mean": -0.0020297539536111575,
-        "importance_std": 0.0009650325628033608
+        "importance_mean": -0.002026308488625073,
+        "importance_std": 0.0009596612635541093
       },
       {
         "feature": "fault_count_last_1500cyc",
-        "importance_mean": -0.0022878736443503354,
-        "importance_std": 0.0007473460705531884
+        "importance_mean": -0.0022882595591226297,
+        "importance_std": 0.0007473703954910554
       }
     ],
     "hist_gradient_boosting": [
@@ -4431,5 +4431,400 @@
         }
       ]
     }
-  ]
+  ],
+  "model_card": {
+    "profile": "v1",
+    "model_id": "hist_gradient_boosting",
+    "seed": 42,
+    "trained_at": "2026-09-30T09:03:11.929857+00:00",
+    "threshold": 0.9405,
+    "threshold_status": "both_constraints_met",
+    "val_status": "both_constraints_met",
+    "test_status": "target_met",
+    "target": {
+      "min_recall": 0.8,
+      "max_alerts_per_100": 5.0
+    },
+    "val_metrics": {
+      "n_rows": 5083,
+      "n_positive": 106,
+      "roc_auc": 0.9985916347272928,
+      "pr_auc": 0.9681713400548697
+    },
+    "test_metrics": {
+      "n_rows": 2515,
+      "n_positive": 28,
+      "roc_auc": 0.9995979091274628,
+      "pr_auc": 0.9732694046690771
+    },
+    "test_at_threshold": {
+      "threshold": 0.9405,
+      "tp": 23,
+      "fp": 0,
+      "fn": 5,
+      "tn": 2487,
+      "recall": 0.8214285714285714,
+      "precision": 1.0,
+      "alerts_per_100": 0.9145129224652088,
+      "n_alerts": 23,
+      "n_rows": 2515
+    },
+    "served_policy": "min_alerts",
+    "calibration": null,
+    "threshold_policies": null,
+    "ci": null,
+    "alert_rate_definition": "row_based (v1 parity mode)",
+    "baselines": null
+  },
+  "calibration": null,
+  "threshold_policies": null,
+  "served_policy": "min_alerts",
+  "ci": null,
+  "alert_rate": null,
+  "alert_rate_definition": "row_based (v1 parity mode)",
+  "baselines_report": null,
+  "multi_seed": null,
+  "realistic": {
+    "model_card": {
+      "profile": "realistic",
+      "model_id": "hist_gradient_boosting",
+      "seed": 42,
+      "trained_at": "2026-09-30T09:03:52.552856+00:00",
+      "threshold": 0.01,
+      "threshold_status": "target_met",
+      "val_status": "target_met",
+      "test_status": "target_met",
+      "target": {
+        "min_recall": 0.8,
+        "max_alerts_per_100": 5.0
+      },
+      "val_metrics": {
+        "n_rows": 2676,
+        "n_positive": 51,
+        "roc_auc": 0.9836265172735762,
+        "pr_auc": 0.6873548040067221
+      },
+      "test_metrics": {
+        "n_rows": 2598,
+        "n_positive": 25,
+        "roc_auc": 0.9813447337738048,
+        "pr_auc": 0.20272932929668958
+      },
+      "test_at_threshold": {
+        "threshold": 0.01,
+        "tp": 23,
+        "fp": 74,
+        "fn": 2,
+        "tn": 2499,
+        "recall": 0.92,
+        "precision": 0.23711340206185566,
+        "alerts_per_100": 3.733641262509623,
+        "n_alerts": 97,
+        "n_rows": 2598
+      },
+      "served_policy": "max_recall_within_budget",
+      "threshold_policies": {
+        "min_alerts": {
+          "threshold": 0.5841,
+          "recall": 0.8431372549019608,
+          "precision": 0.6417910447761194,
+          "alerts_per_100": 2.5037369207772797,
+          "n_alerts": 67.0,
+          "tp": 43.0,
+          "fp": 24.0,
+          "fn": 8.0,
+          "status": "both_constraints_met",
+          "target_recall": 0.8,
+          "target_alerts_per_100": 5.0
+        },
+        "max_recall_within_budget": {
+          "threshold": 0.01,
+          "recall": 0.9607843137254902,
+          "precision": 0.5268817204301075,
+          "alerts_per_100": 3.475336322869955,
+          "n_alerts": 93.0,
+          "tp": 49.0,
+          "fp": 44.0,
+          "fn": 2.0,
+          "status": "within_budget",
+          "alerts_budget": 5.0,
+          "policy": "max_recall_within_budget"
+        },
+        "min_expected_cost": {
+          "threshold": 0.01,
+          "recall": 0.9607843137254902,
+          "precision": 0.5268817204301075,
+          "alerts_per_100": 3.475336322869955,
+          "n_alerts": 93.0,
+          "tp": 49.0,
+          "fp": 44.0,
+          "fn": 2.0,
+          "expected_cost": 166000.0,
+          "status": "within_budget",
+          "alerts_budget": 5.0,
+          "cost_missed_removal": 50000.0,
+          "cost_false_alert": 1500.0,
+          "policy": "min_expected_cost"
+        }
+      },
+      "calibration": {
+        "brier_pre": 0.015715196194859563,
+        "brier_post": 0.009642766906466376,
+        "ece_pre": 0.032455375127157696,
+        "ece_post": 0.002652429675053445,
+        "reliability_curve_pre": [
+          {
+            "bin_lo": 0.0,
+            "bin_hi": 0.1,
+            "mean_predicted": 0.018702291022189257,
+            "observed_frequency": 0.0007803355442840422,
+            "n": 2563
+          },
+          {
+            "bin_lo": 0.1,
+            "bin_hi": 0.2,
+            "mean_predicted": 0.1437043157834702,
+            "observed_frequency": 0.0,
+            "n": 18
+          },
+          {
+            "bin_lo": 0.2,
+            "bin_hi": 0.3,
+            "mean_predicted": 0.22880485065961328,
+            "observed_frequency": 0.0,
+            "n": 2
+          },
+          {
+            "bin_lo": 0.3,
+            "bin_hi": 0.4,
+            "mean_predicted": 0.3458397666144142,
+            "observed_frequency": 0.4,
+            "n": 5
+          },
+          {
+            "bin_lo": 0.4,
+            "bin_hi": 0.5,
+            "mean_predicted": 0.4665451534184549,
+            "observed_frequency": 0.0,
+            "n": 1
+          },
+          {
+            "bin_lo": 0.6,
+            "bin_hi": 0.7,
+            "mean_predicted": 0.6772767871097429,
+            "observed_frequency": 0.0,
+            "n": 1
+          },
+          {
+            "bin_lo": 0.7,
+            "bin_hi": 0.8,
+            "mean_predicted": 0.734252887921779,
+            "observed_frequency": 0.25,
+            "n": 4
+          },
+          {
+            "bin_lo": 0.8,
+            "bin_hi": 0.9,
+            "mean_predicted": 0.8477226906163171,
+            "observed_frequency": 0.6666666666666666,
+            "n": 3
+          },
+          {
+            "bin_lo": 0.9,
+            "bin_hi": 1.0,
+            "mean_predicted": 0.9870572384049248,
+            "observed_frequency": 0.5569620253164557,
+            "n": 79
+          }
+        ],
+        "reliability_curve_post": [
+          {
+            "bin_lo": 0.0,
+            "bin_hi": 0.1,
+            "mean_predicted": 0.000910178230563041,
+            "observed_frequency": 0.0019275250578257518,
+            "n": 2594
+          },
+          {
+            "bin_lo": 0.1,
+            "bin_hi": 0.2,
+            "mean_predicted": 0.11145607173378536,
+            "observed_frequency": 0.6666666666666666,
+            "n": 3
+          },
+          {
+            "bin_lo": 0.2,
+            "bin_hi": 0.3,
+            "mean_predicted": 0.28615238571707646,
+            "observed_frequency": 0.0,
+            "n": 1
+          },
+          {
+            "bin_lo": 0.4,
+            "bin_hi": 0.5,
+            "mean_predicted": 0.4188283715951593,
+            "observed_frequency": 1.0,
+            "n": 1
+          },
+          {
+            "bin_lo": 0.5,
+            "bin_hi": 0.6,
+            "mean_predicted": 0.5834538745662725,
+            "observed_frequency": 0.5584415584415584,
+            "n": 77
+          }
+        ],
+        "method": "sigmoid",
+        "n_val_cal_rows": 2755,
+        "n_val_cal_positive": 49,
+        "fallback_to_sigmoid": true
+      },
+      "ci": {
+        "n_boot": 1000,
+        "confidence_level": 0.95,
+        "recall_ci": [
+          0.8181818181818182,
+          1.0
+        ],
+        "precision_ci": [
+          0.13327102803738322,
+          0.34909307527718336
+        ],
+        "alerts_per_100_ci": [
+          2.932652118823335,
+          4.585168296589494
+        ]
+      },
+      "alert_rate_definition": "component_window: per 30-day window, latest snapshot per active component, share alerting, averaged over windows -- see src/evaluation.alerts_per_100_components",
+      "alert_rate": {
+        "component_window_alerts_per_100": 3.125550957944443,
+        "n_windows": 31,
+        "row_based_alerts_per_100": 3.733641262509623,
+        "window_days": 30
+      },
+      "baselines": {
+        "baseline_age_rule": {
+          "threshold": 0.8811,
+          "test_at_threshold": {
+            "threshold": 0.8811,
+            "tp": 1,
+            "fp": 0,
+            "fn": 24,
+            "tn": 2573,
+            "recall": 0.04,
+            "precision": 1.0,
+            "alerts_per_100": 0.03849114703618168,
+            "n_alerts": 1,
+            "n_rows": 2598
+          },
+          "ci": {
+            "n_boot": 1000,
+            "confidence_level": 0.95,
+            "recall_ci": [
+              0.0,
+              0.10714285714285714
+            ],
+            "precision_ci": [
+              1.0,
+              1.0
+            ],
+            "alerts_per_100_ci": [
+              0.0,
+              0.11864403177913276
+            ]
+          }
+        },
+        "baseline_fault_count_rule": {
+          "threshold": 0.7376,
+          "test_at_threshold": {
+            "threshold": 0.7376,
+            "tp": 12,
+            "fp": 40,
+            "fn": 13,
+            "tn": 2533,
+            "recall": 0.48,
+            "precision": 0.23076923076923078,
+            "alerts_per_100": 2.001539645881447,
+            "n_alerts": 52,
+            "n_rows": 2598
+          },
+          "ci": {
+            "n_boot": 1000,
+            "confidence_level": 0.95,
+            "recall_ci": [
+              0.23068181818181827,
+              0.7143973214285714
+            ],
+            "precision_ci": [
+              0.1052357456140351,
+              0.3529718137254902
+            ],
+            "alerts_per_100_ci": [
+              1.35586848477125,
+              2.769122286309473
+            ]
+          }
+        }
+      }
+    },
+    "metrics_table": [
+      {
+        "model": "logistic_regression",
+        "val_roc_auc": 0.964833,
+        "val_pr_auc": 0.733282,
+        "test_roc_auc": 0.812079,
+        "test_pr_auc": 0.499023,
+        "chosen_threshold": 0.0149,
+        "threshold_status": "target_missed",
+        "test_recall": 0.68,
+        "test_precision": 0.17,
+        "test_alerts_per_100": 3.84911,
+        "test_n_alerts": 100,
+        "test_n_positive": 25
+      },
+      {
+        "model": "hist_gradient_boosting",
+        "val_roc_auc": 0.983627,
+        "val_pr_auc": 0.687355,
+        "test_roc_auc": 0.981345,
+        "test_pr_auc": 0.202729,
+        "chosen_threshold": 0.01,
+        "threshold_status": "target_met",
+        "test_recall": 0.92,
+        "test_precision": 0.237113,
+        "test_alerts_per_100": 3.73364,
+        "test_n_alerts": 97,
+        "test_n_positive": 25
+      },
+      {
+        "model": "baseline_age_rule",
+        "val_roc_auc": 0.734073,
+        "val_pr_auc": 0.0510722,
+        "test_roc_auc": 0.574038,
+        "test_pr_auc": 0.0527273,
+        "chosen_threshold": 0.8811,
+        "threshold_status": "target_missed",
+        "test_recall": 0.04,
+        "test_precision": 1,
+        "test_alerts_per_100": 0.0384911,
+        "test_n_alerts": 1,
+        "test_n_positive": 25
+      },
+      {
+        "model": "baseline_fault_count_rule",
+        "val_roc_auc": 0.859578,
+        "val_pr_auc": 0.298601,
+        "test_roc_auc": 0.939845,
+        "test_pr_auc": 0.236762,
+        "chosen_threshold": 0.7376,
+        "threshold_status": "target_missed",
+        "test_recall": 0.48,
+        "test_precision": 0.230769,
+        "test_alerts_per_100": 2.00154,
+        "test_n_alerts": 52,
+        "test_n_positive": 25
+      }
+    ],
+    "multi_seed": null
+  }
 }

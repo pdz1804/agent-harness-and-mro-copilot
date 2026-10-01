@@ -1,9 +1,12 @@
 {
+  "profile": "v1",
   "model_id": "hist_gradient_boosting",
   "seed": 42,
-  "trained_at": "2026-09-29T08:31:15.994808+00:00",
+  "trained_at": "2026-09-30T09:03:11.929857+00:00",
   "threshold": 0.9405,
   "threshold_status": "both_constraints_met",
+  "val_status": "both_constraints_met",
+  "test_status": "target_met",
   "target": {
     "min_recall": 0.8,
     "max_alerts_per_100": 5.0
@@ -31,5 +34,11 @@
     "alerts_per_100": 0.9145129224652088,
     "n_alerts": 23,
     "n_rows": 2515
-  }
+  },
+  "served_policy": "min_alerts",
+  "calibration": null,
+  "threshold_policies": null,
+  "ci": null,
+  "alert_rate_definition": "row_based (v1 parity mode)",
+  "baselines": null
 }

@@ -1,0 +1,86 @@
+{
+  "results": {
+    "bm25": {
+      "recall_at_1": 0.82,
+      "recall_at_k": 0.98,
+      "mrr": 0.9,
+      "k": 3,
+      "n_queries": 50
+    },
+    "tfidf": {
+      "recall_at_1": 0.8,
+      "recall_at_k": 0.98,
+      "mrr": 0.8866666666666667,
+      "k": 3,
+      "n_queries": 50
+    },
+    "hybrid": {
+      "recall_at_1": 0.86,
+      "recall_at_k": 0.98,
+      "mrr": 0.92,
+      "k": 3,
+      "n_queries": 50
+    }
+  },
+  "slices": {
+    "easy": {
+      "bm25": {
+        "recall_at_1": 0.96,
+        "recall_at_k": 1.0,
+        "mrr": 0.98,
+        "k": 3,
+        "n_queries": 25
+      },
+      "tfidf": {
+        "recall_at_1": 0.84,
+        "recall_at_k": 1.0,
+        "mrr": 0.92,
+        "k": 3,
+        "n_queries": 25
+      },
+      "hybrid": {
+        "recall_at_1": 0.96,
+        "recall_at_k": 1.0,
+        "mrr": 0.98,
+        "k": 3,
+        "n_queries": 25
+      }
+    },
+    "hard": {
+      "bm25": {
+        "recall_at_1": 0.68,
+        "recall_at_k": 0.96,
+        "mrr": 0.82,
+        "k": 3,
+        "n_queries": 25
+      },
+      "tfidf": {
+        "recall_at_1": 0.76,
+        "recall_at_k": 0.96,
+        "mrr": 0.8533333333333334,
+        "k": 3,
+        "n_queries": 25
+      },
+      "hybrid": {
+        "recall_at_1": 0.76,
+        "recall_at_k": 0.96,
+        "mrr": 0.86,
+        "k": 3,
+        "n_queries": 25
+      }
+    }
+  },
+  "gate": {
+    "hybrid_recall_at_3": 1.0,
+    "gate_threshold": 0.85,
+    "hybrid_meets_gate": true,
+    "hybrid_at_least_bm25": true,
+    "slice": "easy",
+    "note": "Hard slice is measured and reported in `slices.hard` but is NOT gated pass/fail; see reports/kb-eval-hardening-report.md for interpretation."
+  },
+  "n_docs": 22,
+  "n_chunks": 98,
+  "n_queries_total": 50,
+  "n_queries_easy": 25,
+  "n_queries_hard": 25
+}

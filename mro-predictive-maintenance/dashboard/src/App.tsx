@@ -1,74 +1,115 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dashboardData from "./data/dashboard_data.json";
-import { OverviewSection } from "./components/OverviewSection";
-import { ModelComparisonSection } from "./components/ModelComparisonSection";
-import { FeatureImportanceSection } from "./components/FeatureImportanceSection";
-import { HighRiskLeaderboard } from "./components/HighRiskLeaderboard";
-import { LiveScoringPage } from "./components/LiveScoringPage";
-import { FleetRiskPage } from "./components/FleetRiskPage";
-import { AppFooter } from "./components/AppFooter";
+import { AppShell } from "./components/layout/AppShell";
+import { useHashRoute } from "./hooks/useHashRoute";
+import { getGlobalPending } from "./lib/api";
+import { resolveRoute, type AreaId } from "./lib/routes";
+import { OverviewPage } from "./pages/OverviewPage";
+import { ArchitectureSection } from "./components/ArchitectureSection";
+import { HowItWorksSection } from "./components/HowItWorksSection";
+import { ProductionDesignSection } from "./components/ProductionDesignSection";
+import { FleetPage } from "./pages/FleetPage";
+import { ComponentDetailPage } from "./pages/detail/ComponentDetailPage";
+import { AircraftPage } from "./pages/detail/AircraftPage";
+import { AlertsPage } from "./pages/AlertsPage";
+import { WorkOrdersPage } from "./pages/WorkOrdersPage";
+import { CopilotPage } from "./pages/CopilotPage";
+import { KnowledgeBasePage } from "./pages/KnowledgeBasePage";
+import { PerformancePage } from "./pages/PerformancePage";
+import { ExplainabilityPage } from "./pages/ExplainabilityPage";
+import { WhatIfPage } from "./pages/WhatIfPage";
+import { MonitoringPage } from "./pages/MonitoringPage";
+import { AppFooter } from "./components/layout/AppFooter";
 import type { DashboardData } from "./types";
 
 const data = dashboardData as unknown as DashboardData;
 
-type Tab = "offline" | "live-scoring" | "fleet-risk";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "offline", label: "Offline results" },
-  { id: "live-scoring", label: "Live scoring" },
-  { id: "fleet-risk", label: "Fleet risk" },
-];
-
 export default function App() {
-  const [tab, setTab] = useState<Tab>("offline");
+  const [segments, navigate] = useHashRoute();
+  const route = useMemo(() => resolveRoute(segments), [segments]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [prefillPrompt, setPrefillPrompt] = useState<string | null>(null);
+  const lastPageByArea = useRef<Partial<Record<AreaId, string>>>({});
+
+  const pageId = route.page.id;
+  const param = route.params[0];
+  // Detail pages highlight their parent in the sub-nav.
+  const activePageId = route.detail ? "ops/fleet" : pageId;
+  if (!route.detail) lastPageByArea.current[route.area.id] = pageId;
+
+  useEffect(() => {
+    if (window.location.hash === "") {
+      window.location.replace("#/overview");
+    }
+  }, []);
+
+  useEffect(() => {
+    document.title = `${route.detail ? param ?? route.page.label : route.page.title} · MRO Predictive Maintenance`;
+  }, [route, param]);
+
+  // One scroll container: a new page always starts at its top.
+  useEffect(() => {
+    document.getElementById("app-main")?.scrollTo({ top: 0 });
+  }, [pageId, param]);
+
+  useEffect(() => {
+    const poll = () => {
+      getGlobalPending()
+        .then((items) => setPendingCount(items.filter((p) => !p.is_stale).length))
+        .catch(() => {
+          /* service unreachable -- pages surface this themselves */
+        });
+    };
+    poll();
+    const id = setInterval(poll, 10_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const askCopilot = useCallback(
+    (prompt: string) => {
+      setPrefillPrompt(prompt);
+      navigate("ops/copilot");
+    },
+    [navigate],
+  );
+  const consumePrefill = useCallback(() => setPrefillPrompt(null), []);
+
+  const fill = !!route.page.fill;
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <span className="app-header__eyebrow">MRO Predictive Maintenance</span>
-        <h1 className="app-header__title">Unscheduled Removal Risk &mdash; Results Dashboard</h1>
-        <p className="app-header__subtitle">
-          Predicts whether an aircraft component needs an unscheduled removal within the next
-          30 flight cycles. "Offline results" is generated from <code>reports/*.csv</code>,{" "}
-          <code>reports/*.md</code>, and <code>docs/*.md</code> by{" "}
-          <code>dashboard/scripts/build_dashboard_data.py</code>. "Live scoring" and "Fleet risk"
-          call the real inference service (<code>src/service/app.py</code>) live &mdash; nothing
-          on this page is hand-typed.
-        </p>
-        <nav style={{ display: "flex", gap: 8, marginTop: 14 }}>
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 999,
-                border: `1px solid ${tab === t.id ? "var(--accent)" : "var(--panel-border-strong)"}`,
-                background: tab === t.id ? "var(--accent-dim)" : "transparent",
-                color: tab === t.id ? "var(--accent-strong)" : "var(--text-secondary)",
-                fontSize: 12.5,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      </header>
+    <AppShell
+      area={route.area}
+      activePageId={activePageId}
+      lastPageByArea={lastPageByArea.current}
+      pendingCount={pendingCount}
+      fill={fill}
+    >
+      {pageId === "overview" && <OverviewPage data={data} pendingCount={pendingCount} />}
 
-      {tab === "offline" && (
-        <>
-          <OverviewSection data={data} />
-          <ModelComparisonSection data={data} />
-          <FeatureImportanceSection data={data} />
-          <HighRiskLeaderboard data={data} />
-        </>
+      {pageId === "ops/fleet" && <FleetPage view={param === "aircraft" ? "aircraft" : "components"} onAskCopilot={askCopilot} />}
+      {pageId === "ops/component" && <ComponentDetailPage componentId={param} onAskCopilot={askCopilot} />}
+      {pageId === "ops/aircraft" && <AircraftPage aircraftId={param} onAskCopilot={askCopilot} />}
+      {pageId === "ops/alerts" && <AlertsPage alertId={param} onAskCopilot={askCopilot} />}
+      {pageId === "ops/work-orders" && <WorkOrdersPage data={data} />}
+      {pageId === "ops/copilot" && (
+        <CopilotPage
+          prefillPrompt={prefillPrompt}
+          onPrefillConsumed={consumePrefill}
+          onPendingCountChange={setPendingCount}
+        />
       )}
-      {tab === "live-scoring" && <LiveScoringPage />}
-      {tab === "fleet-risk" && <FleetRiskPage />}
+      {pageId === "ops/knowledge-base" && <KnowledgeBasePage docId={param} />}
+
+      {pageId === "model/performance" && <PerformancePage data={data} />}
+      {pageId === "model/explainability" && <ExplainabilityPage data={data} />}
+      {pageId === "model/what-if" && <WhatIfPage componentId={param} />}
+      {pageId === "model/monitoring" && <MonitoringPage data={data} />}
+
+      {pageId === "about/architecture" && <ArchitectureSection />}
+      {pageId === "about/how-it-works" && <HowItWorksSection data={data} />}
+      {pageId === "about/production-design" && <ProductionDesignSection />}
 
       <AppFooter />
-    </div>
+    </AppShell>
   );
 }

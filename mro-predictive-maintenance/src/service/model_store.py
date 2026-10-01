@@ -21,7 +21,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
-from src import config, splitting
+from src import config, splitting, tracking
 from src.modeling import ALL_FEATURES
 
 
@@ -32,9 +32,25 @@ class ModelNotLoadedError(RuntimeError):
 @dataclass
 class ModelStore:
     pipeline: object | None = None
+    # Isotonic/sigmoid-calibrated wrapper around `pipeline`, produced by
+    # src/pipeline.py's realistic-profile run (models/<id>_calibrated.joblib).
+    # Loaded for its probability calibration; SHAP explanations still run
+    # against the uncalibrated `pipeline` (calibration is a monotone
+    # transform, so feature ranking/attribution is unchanged -- see
+    # src/calibration.py module docstring and phase-01 requirement #8). Not
+    # yet wired into the live /score response (app.py wiring is owned by a
+    # later phase) -- `calibrated_available` documents that gap explicitly
+    # rather than silently ignoring the artifact.
+    calibrated_pipeline: object | None = None
+    calibrated_available: bool = False
     model_card: dict | None = None
     background_df: pd.DataFrame | None = None
     test_latest_df: pd.DataFrame | None = None
+    # Set when the model actually being served came from the MLflow
+    # registry's `champion` alias rather than the local joblib artifact --
+    # None means "local joblib" (registry unreachable/empty/not installed).
+    # Exposed on /health, /model-card, /score (phase-02 requirement #4).
+    model_version: str | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     @property
@@ -60,8 +76,27 @@ class ModelStore:
                     "(or the full pipeline) first."
                 )
 
-            self.pipeline = joblib.load(model_path)
+            # Load order (phase-02 requirement #4): registry alias `champion`
+            # if MLflow tracking is reachable and the alias exists, else the
+            # local joblib artifact (current/original behaviour). A registry
+            # load failure of ANY kind falls back silently to joblib -- the
+            # service must never fail to start because MLflow is down.
+            registry_result = tracking.load_champion_pipeline()
+            if registry_result is not None:
+                self.pipeline, self.model_version = registry_result
+            else:
+                self.pipeline = joblib.load(model_path)
+                self.model_version = None
+
             self.model_card = json.loads(config.MODEL_CARD_JSON.read_text(encoding="utf-8"))
+
+            calibrated_path = config.MODELS_DIR / f"{model_id}_calibrated.joblib"
+            if calibrated_path.exists():
+                self.calibrated_pipeline = joblib.load(calibrated_path)
+                self.calibrated_available = True
+            else:
+                self.calibrated_pipeline = None
+                self.calibrated_available = False
 
             table = pd.read_csv(
                 config.MODEL_TABLE_CSV, parse_dates=["snapshot_date", "delivery_date"]

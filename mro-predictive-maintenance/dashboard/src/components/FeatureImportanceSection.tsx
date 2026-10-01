@@ -1,5 +1,7 @@
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { humanizeFeatureName } from "../lib/format";
+import { Notice } from "./ui/states";
+import { Panel } from "./ui/primitives";
 import type { DashboardData, FeatureImportanceRow } from "../types";
 
 interface FeatureImportanceSectionProps {
@@ -9,8 +11,8 @@ interface FeatureImportanceSectionProps {
 const TOP_N = 10;
 
 const SERIES_COLOR: Record<string, string> = {
-  logistic_regression: "var(--series-lr)",
-  hist_gradient_boosting: "var(--series-hgb)",
+  logistic_regression: "#7d8b98",
+  hist_gradient_boosting: "#0b6b8a",
 };
 
 interface TooltipPayloadItem {
@@ -29,11 +31,11 @@ function ImportanceTooltip({
   return (
     <div className="rc-tooltip">
       <div style={{ marginBottom: 4, fontFamily: "var(--font-mono)" }}>{row.feature}</div>
-      <div className="rc-tooltip__row">
+      <div className="rc-tooltip-row">
         <span>importance</span>
         <span>{row.importance_mean.toFixed(4)}</span>
       </div>
-      <div className="rc-tooltip__row">
+      <div className="rc-tooltip-row">
         <span>std (10 repeats)</span>
         <span>&plusmn;{row.importance_std.toFixed(4)}</span>
       </div>
@@ -47,16 +49,16 @@ function ImportanceChart({ rows, color }: { rows: FeatureImportanceRow[]; color:
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={top} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
-        <CartesianGrid stroke="var(--panel-border)" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v: number) => v.toFixed(2)} stroke="var(--panel-border-strong)" />
+        <CartesianGrid stroke="#dde2e8" horizontal={false} />
+        <XAxis type="number" tickFormatter={(v: number) => v.toFixed(2)} stroke="#dde2e8" />
         <YAxis
           dataKey="display"
           type="category"
           width={168}
           tick={{ fontSize: 11 }}
-          stroke="var(--panel-border-strong)"
+          stroke="#dde2e8"
         />
-        <Tooltip content={<ImportanceTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+        <Tooltip content={<ImportanceTooltip />} cursor={{ fill: "rgba(11,107,138,0.06)" }} />
         <Bar dataKey="importance_mean" radius={[0, 3, 3, 0]} isAnimationActive={false}>
           {top.map((row) => (
             <Cell key={row.feature} fill={color} fillOpacity={row.importance_mean < 0 ? 0.35 : 1} />
@@ -69,30 +71,30 @@ function ImportanceChart({ rows, color }: { rows: FeatureImportanceRow[]; color:
 
 export function FeatureImportanceSection({ data }: FeatureImportanceSectionProps) {
   return (
-    <section className="section">
-      <div className="section__heading">
-        <h2 className="section__title">Feature importance</h2>
-        <span className="section__note">
-          permutation importance, avg. precision scoring, validation split, 10 repeats
-        </span>
+    <>
+      <Notice tone="plain">
+        Permutation importance, average-precision scoring, validation split, 10 repeats. A longer bar means the model leans on that feature more.
+      </Notice>
+      <div className="grid-2">
+        {data.models.map((model) => {
+          const color = SERIES_COLOR[model.id] ?? "#0b6b8a";
+          return (
+            <Panel
+              key={model.id}
+              title={
+                <span className="row" style={{ flexWrap: "nowrap" }}>
+                  <i className="swatch" style={{ background: color }} />
+                  {model.label}
+                </span>
+              }
+            >
+              <div className="chart-box" role="img" aria-label={`Top ${TOP_N} features by permutation importance for ${model.label}`}>
+                <ImportanceChart rows={data.feature_importance[model.id]} color={color} />
+              </div>
+            </Panel>
+          );
+        })}
       </div>
-      <div className="model-grid">
-        {data.models.map((model) => (
-          <div className="panel" key={model.id}>
-            <div className="model-card__title" style={{ marginBottom: 10 }}>
-              <span
-                className="model-card__dot"
-                style={{ background: SERIES_COLOR[model.id] ?? "var(--accent)" }}
-              />
-              {model.label}
-            </div>
-            <ImportanceChart
-              rows={data.feature_importance[model.id]}
-              color={SERIES_COLOR[model.id] ?? "var(--accent)"}
-            />
-          </div>
-        ))}
-      </div>
-    </section>
+    </>
   );
 }

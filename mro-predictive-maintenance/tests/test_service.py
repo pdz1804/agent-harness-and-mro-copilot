@@ -46,8 +46,14 @@ def test_model_card_matches_disk_artifact(client):
     assert body["model_id"] == config.PRIMARY_MODEL_ID
     assert 0.0 <= body["threshold"] <= 1.0
     assert set(body["numeric_features"] + body["categorical_features"]) == set(ALL_FEATURES)
+    # Vocabulary depends on which profile trained the artifacts currently on
+    # disk: "v1" (parity mode, src/pipeline.py._run_v1) reuses the original
+    # min_alerts enum; "realistic" (src/pipeline.py._run_realistic, phase-01
+    # threshold-policy redesign) reports target_met/target_missed against
+    # the served max_recall_within_budget policy instead. Both are valid.
     assert body["threshold_status"] in {
         "both_constraints_met", "alert_rate_met_recall_shortfall", "neither_constraint_met",
+        "target_met", "target_missed",
     }
 
 

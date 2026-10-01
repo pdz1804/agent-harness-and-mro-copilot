@@ -91,6 +91,59 @@ Scheduled vs. symptom-triggered inspections (label-leakage guard)
     through the generator's own inspection-injection mechanism rather than
     the underlying physics. See docs/design-report.md section 7.1
     ("Leakage found and fixed").
+
+Realism profile (v3, ``--profile realistic``)
+    ``--profile v1`` (default when called explicitly) reproduces the
+    originally-submitted dataset byte-for-byte -- no code path below runs,
+    and no extra RNG draws happen, when ``profile == "v1"``, so the existing
+    determinism/parity tests keep passing untouched. ``--profile realistic``
+    (the pipeline's new headline profile, see src/config.DEFAULT_PROFILE)
+    layers six physically-motivated realism knobs on top of the same
+    Weibull wear model, each added ONLY inside an ``if profile ==
+    "realistic":`` branch so v1's RNG stream is bit-identical to before:
+
+    1. NFF (no-fault-found) unscheduled removals: ~15% of unscheduled
+       removals are "signal-free" -- the component IS pulled unscheduled
+       (still label=1, it really is an unscheduled removal) but its sensor
+       drift is capped at a low wear fraction throughout its life, so the
+       model has nothing to key on. Mirrors real avionics/mechanical NFF
+       rates (20-50%, see reports/research-and-gap-analysis.md domain
+       research) and caps achievable recall honestly instead of hiding it.
+    2. Stuck/faulty sensor episodes: ~1% chance per snapshot that one
+       sensor reads a stuck (frozen-at-bias) or spiked value, independent
+       of true wear -- models transducer/wiring faults, not component health.
+    3. Missing-not-at-random (MNAR) sensor dropout: missingness probability
+       rises with wear fraction ``u`` (degraded components get skipped or
+       fail to transmit more often) on top of the base MCAR dropout.
+    4. Component replacement ("second life"): after a removal, if enough
+       study-window runway remains, a new physical unit is installed in
+       the same aircraft/component-type slot 50% of the time -- distinct
+       ``component_id`` suffix + ``component_serial``/``install_cycle``
+       audit columns (src/config.NON_FEATURE_COLUMNS), age (``cycle``)
+       resets to 0. ``aircraft_id`` stays the group key, so splitting.py's
+       leakage guarantees are unaffected.
+    5. Label noise: 3% of scheduled-caught ("hard negative") components
+       have their would-be pre-removal window mislabeled positive --
+       models maintenance-records-quality noise (a scheduled removal
+       misrecorded as unscheduled), not a physical effect.
+    6. Operator/climate effect: ``region`` modulates the Weibull scale by
+       +-15% (domestic ops assumed harsher duty cycle -> faster wear) --
+       a deterministic multiplier, no extra RNG draw.
+    7. Anti-sampling-leakage balancer: 30% of components that survive the
+       whole study window (never removed) also get one extra "spot check"
+       inspection near the end of their observed history, so an extra
+       inspection near a component's last rows is no longer a
+       removal-only signature (design-report.md section 7.1 flagged
+       ``cycles_since_last_check``/inspection-density as an artifact of
+       ONLY injecting extra checks for soon-to-be-removed components).
+
+    None of this changes the label definition (still "unscheduled removal
+    within PREDICTION_HORIZON cycles") or the leakage guards in
+    src/features.py -- it only makes the underlying signal noisier and more
+    representative of a real fleet, which is expected to (and, per the
+    coordinator decision recorded in plan.md, is REPORTED honestly rather
+    than tuned away) reduce ROC-AUC/precision and push recall below 0.80 in
+    some seeds. See tests/test_realism_profile.py.
 """
 
 from __future__ import annotations
@@ -171,23 +224,52 @@ def make_aircraft(rng: np.random.Generator, n_aircraft: int) -> pd.DataFrame:
     })
 
 
-def _simulate_one_component(rng, aircraft_row, component_type):
-    label, shape, scale, sensors = COMPONENT_TYPES[component_type]
-    component_id = f"{aircraft_row.aircraft_id}-{component_type}"
+NFF_SHARE_OF_UNSCHEDULED = 0.15  # p(NFF | unscheduled removal), realistic profile only
+NFF_MAX_SIGNAL_U = 0.35  # NFF components never show wear-fraction signal above this
+STUCK_SENSOR_RATE = 0.01  # p(stuck/spike fault) per sensor per snapshot, realistic only
+MNAR_DROPOUT_SLOPE = 0.06  # extra dropout probability at u=1 (added to SENSOR_MCAR_DROPOUT)
+SECOND_LIFE_PROBABILITY = 0.5  # p(component replaced) after a removal, if runway remains
+LABEL_NOISE_RATE = 0.03  # share of scheduled-caught components mislabeled as unscheduled
+REGION_WEAR_MODULATION = {"domestic": 1.15, "international": 0.85}  # +-15% Weibull scale
+SURVIVOR_SPOT_CHECK_PROBABILITY = 0.30  # anti-sampling-leakage balancer, realistic only
 
-    total_study_cycles = int(
+
+def _simulate_one_component(
+    rng, aircraft_row, component_type, profile: str = "v1",
+    cycle_offset: float = 0.0, serial: int = 1,
+):
+    label, shape, scale, sensors = COMPONENT_TYPES[component_type]
+    suffix = "" if serial == 1 else f"-S{serial}"
+    component_id = f"{aircraft_row.aircraft_id}-{component_type}{suffix}"
+
+    total_study_cycles_full = int(
         (STUDY_END_DATE - aircraft_row.delivery_date).days * aircraft_row.cycles_per_day
     )
-    total_study_cycles = max(total_study_cycles, ROUTINE_CHECK_INTERVAL_CYCLES + PREDICTION_HORIZON)
+    total_study_cycles_full = max(
+        total_study_cycles_full, ROUTINE_CHECK_INTERVAL_CYCLES + PREDICTION_HORIZON
+    )
+    total_study_cycles = total_study_cycles_full - cycle_offset
+    if total_study_cycles < ROUTINE_CHECK_INTERVAL_CYCLES + PREDICTION_HORIZON:
+        return None  # not enough runway left in the study window for this life
 
-    true_failure_cycle = float(rng.weibull(shape) * scale)
+    scale_eff = scale
+    if profile == "realistic":
+        # Operator/climate effect: region modulates wear rate +-15%. A
+        # deterministic multiplier -- no extra RNG draw, so it never touches
+        # v1's RNG stream (this branch never runs for profile == "v1").
+        scale_eff = scale * REGION_WEAR_MODULATION.get(aircraft_row.region, 1.0)
+
+    true_failure_cycle = float(rng.weibull(shape) * scale_eff)
     reaches_failure_zone = true_failure_cycle <= total_study_cycles
 
+    is_nff = False
     if reaches_failure_zone:
         is_unscheduled = rng.random() < P_UNSCHEDULED
         if is_unscheduled:
             removal_cycle = true_failure_cycle
             removal_type = "unscheduled"
+            if profile == "realistic":
+                is_nff = rng.random() < NFF_SHARE_OF_UNSCHEDULED
         else:
             lead_time = rng.uniform(80, 300)
             removal_cycle = max(30.0, true_failure_cycle - lead_time)
@@ -197,6 +279,13 @@ def _simulate_one_component(rng, aircraft_row, component_type):
         removal_type = None
         removal_cycle = None
         observed_end_cycle = float(total_study_cycles)
+
+    label_noise_flip = False
+    if profile == "realistic" and removal_type == "scheduled":
+        # Records-quality noise: some scheduled-caught removals are actually
+        # misrecorded as unscheduled in the maintenance system, not a
+        # physical effect -- see module docstring point 5.
+        label_noise_flip = rng.random() < LABEL_NOISE_RATE
 
     # Routine check grid.
     n_checks = max(1, int(observed_end_cycle // ROUTINE_CHECK_INTERVAL_CYCLES))
@@ -225,6 +314,17 @@ def _simulate_one_component(rng, aircraft_row, component_type):
                 max(1.0, removal_cycle - PREDICTION_HORIZON + 2), removal_cycle - 1, size=n_extra
             )
             check_cycles = np.sort(np.concatenate([check_cycles, extra_check_cycles]))
+    elif profile == "realistic" and not reaches_failure_zone:
+        # Anti-sampling-leakage balancer (module docstring point 7): give a
+        # random 30% of NEVER-removed components an extra "spot check" too,
+        # so an extra inspection is not, by construction, only ever seen on
+        # soon-to-be-removed components.
+        if rng.random() < SURVIVOR_SPOT_CHECK_PROBABILITY and observed_end_cycle > PREDICTION_HORIZON + 2:
+            extra_cycle = rng.uniform(
+                max(1.0, observed_end_cycle - PREDICTION_HORIZON + 2), observed_end_cycle - 1
+            )
+            extra_check_cycles = np.array([extra_cycle])
+            check_cycles = np.sort(np.concatenate([check_cycles, extra_check_cycles]))
 
     if check_cycles.size == 0:
         check_cycles = np.array([min(observed_end_cycle, ROUTINE_CHECK_INTERVAL_CYCLES)])
@@ -237,12 +337,16 @@ def _simulate_one_component(rng, aircraft_row, component_type):
     maint_rows = []
     for cycle in check_cycles:
         u = float(np.clip(cycle / true_failure_cycle, 0.0, 1.0))
+        u_signal = min(u, NFF_MAX_SIGNAL_U) if is_nff else u
+        global_cycle = cycle_offset + cycle
         snapshot_date = aircraft_row.delivery_date + pd.to_timedelta(
-            cycle / aircraft_row.cycles_per_day, unit="D"
+            global_cycle / aircraft_row.cycles_per_day, unit="D"
         )
 
         label_val = 0
         if removal_type == "unscheduled" and 0 < (removal_cycle - cycle) <= PREDICTION_HORIZON:
+            label_val = 1
+        elif label_noise_flip and 0 < (removal_cycle - cycle) <= PREDICTION_HORIZON:
             label_val = 1
 
         is_symptom_triggered = round(float(cycle), 1) in extra_check_set
@@ -259,16 +363,32 @@ def _simulate_one_component(rng, aircraft_row, component_type):
             # directly would trivially leak the label (see module docstring).
             "check_type": check_event_type,
             "label": label_val,
+            "component_serial": serial,
+            "install_cycle": round(float(cycle_offset), 1),
+            "is_nff": bool(is_nff),
         }
         for s in sensors:
             val = (
                 SENSOR_BASELINE[s]
-                + SENSOR_AMPLITUDE[s] * (u ** 2)
+                + SENSOR_AMPLITUDE[s] * (u_signal ** 2)
                 + per_component_bias[s]
                 + rng.normal(0, SENSOR_NOISE_SIGMA[s])
             )
-            if rng.random() < SENSOR_MCAR_DROPOUT:
-                val = np.nan
+            if profile == "realistic":
+                if rng.random() < STUCK_SENSOR_RATE:
+                    # Stuck (frozen at this component's baseline bias) or a
+                    # spike fault -- a transducer/wiring fault independent of
+                    # true wear, not a health symptom (module docstring pt 2).
+                    if rng.random() < 0.5:
+                        val = per_component_bias[s]
+                    else:
+                        val = val + rng.normal(0, 8 * SENSOR_NOISE_SIGMA[s])
+                dropout_p = SENSOR_MCAR_DROPOUT + MNAR_DROPOUT_SLOPE * u_signal
+                if rng.random() < dropout_p:
+                    val = np.nan
+            else:
+                if rng.random() < SENSOR_MCAR_DROPOUT:
+                    val = np.nan
             row[s] = val
         for s in SENSOR_COLUMNS:
             if s not in sensors:
@@ -282,13 +402,13 @@ def _simulate_one_component(rng, aircraft_row, component_type):
             "event_type": check_event_type,
         })
 
-        n_faults = rng.poisson(FAULT_BASE_RATE_PER_CHECK * (1 + 6 * u ** 3))
+        n_faults = rng.poisson(FAULT_BASE_RATE_PER_CHECK * (1 + 6 * u_signal ** 3))
         for _ in range(n_faults):
             fault_cycle = cycle - rng.uniform(0, min(ROUTINE_CHECK_INTERVAL_CYCLES, cycle))
             fault_date = aircraft_row.delivery_date + pd.to_timedelta(
-                fault_cycle / aircraft_row.cycles_per_day, unit="D"
+                (cycle_offset + fault_cycle) / aircraft_row.cycles_per_day, unit="D"
             )
-            severity = int(np.clip(rng.integers(1, 4) + (1 if u > 0.7 else 0), 1, 3))
+            severity = int(np.clip(rng.integers(1, 4) + (1 if u_signal > 0.7 else 0), 1, 3))
             fault_rows.append({
                 "component_id": component_id,
                 "cycle_at_fault": round(float(fault_cycle), 1),
@@ -301,14 +421,24 @@ def _simulate_one_component(rng, aircraft_row, component_type):
         "component_id": component_id,
         "aircraft_id": aircraft_row.aircraft_id,
         "component_type": component_type,
-        "install_date": aircraft_row.delivery_date,
+        "install_date": (
+            aircraft_row.delivery_date
+            if cycle_offset == 0
+            else aircraft_row.delivery_date + pd.to_timedelta(
+                cycle_offset / aircraft_row.cycles_per_day, unit="D"
+            )
+        ),
         "removal_type": removal_type if removal_type else "none",
         "removal_cycle": round(removal_cycle, 1) if removal_cycle is not None else np.nan,
         "removal_date": (
             (aircraft_row.delivery_date + pd.to_timedelta(
-                removal_cycle / aircraft_row.cycles_per_day, unit="D")).normalize()
+                global_cycle_removal(cycle_offset, removal_cycle) / aircraft_row.cycles_per_day,
+                unit="D")).normalize()
             if removal_cycle is not None else pd.NaT
         ),
+        "component_serial": serial,
+        "install_cycle": round(float(cycle_offset), 1),
+        "is_nff": bool(is_nff),
     }
     if removal_type:
         maint_rows.append({
@@ -318,10 +448,22 @@ def _simulate_one_component(rng, aircraft_row, component_type):
             "event_type": f"{removal_type}_removal",
         })
 
-    return component_row, snapshot_rows, fault_rows, maint_rows
+    next_life = None
+    if profile == "realistic" and removal_type is not None:
+        if rng.random() < SECOND_LIFE_PROBABILITY:
+            next_life = (cycle_offset + removal_cycle, serial + 1)
+
+    return component_row, snapshot_rows, fault_rows, maint_rows, next_life
 
 
-def generate(seed: int = config.DEFAULT_SEED, n_aircraft: int = N_AIRCRAFT):
+def global_cycle_removal(cycle_offset: float, removal_cycle: float | None) -> float:
+    return cycle_offset + removal_cycle if removal_cycle is not None else cycle_offset
+
+
+def generate(seed: int = config.DEFAULT_SEED, n_aircraft: int = N_AIRCRAFT, profile: str = "v1"):
+    if profile not in {"v1", "realistic"}:
+        raise ValueError(f"unknown profile {profile!r}; expected 'v1' or 'realistic'")
+
     rng = np.random.default_rng(seed)
 
     aircraft_df = make_aircraft(rng, n_aircraft)
@@ -329,13 +471,25 @@ def generate(seed: int = config.DEFAULT_SEED, n_aircraft: int = N_AIRCRAFT):
     components, snapshots, faults, maint = [], [], [], []
     for aircraft_row in aircraft_df.itertuples(index=False):
         for component_type in COMPONENT_TYPES:
-            comp_row, snap_rows, fault_rows, maint_rows = _simulate_one_component(
-                rng, aircraft_row, component_type
-            )
-            components.append(comp_row)
-            snapshots.extend(snap_rows)
-            faults.extend(fault_rows)
-            maint.extend(maint_rows)
+            cycle_offset, serial = 0.0, 1
+            # Component-replacement chain (realistic profile only, module
+            # docstring point 4): at most a handful of lives per slot -- a
+            # hard cap keeps this YAGNI-bounded even in a pathological seed.
+            for _ in range(4):
+                result = _simulate_one_component(
+                    rng, aircraft_row, component_type, profile=profile,
+                    cycle_offset=cycle_offset, serial=serial,
+                )
+                if result is None:
+                    break
+                comp_row, snap_rows, fault_rows, maint_rows, next_life = result
+                components.append(comp_row)
+                snapshots.extend(snap_rows)
+                faults.extend(fault_rows)
+                maint.extend(maint_rows)
+                if next_life is None:
+                    break
+                cycle_offset, serial = next_life
 
     components_df = pd.DataFrame(components)
     snapshots_df = pd.DataFrame(snapshots).sort_values(
@@ -355,13 +509,30 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=config.DEFAULT_SEED)
     parser.add_argument("--n-aircraft", type=int, default=N_AIRCRAFT)
-    parser.add_argument("--out-dir", type=Path, default=config.RAW_DIR)
+    parser.add_argument(
+        "--profile", choices=["v1", "realistic"], default=config.DEFAULT_PROFILE,
+        help="'v1' reproduces the originally-submitted dataset byte-for-byte; "
+        "'realistic' (default) layers NFF removals, sensor faults, component "
+        "replacement, label noise, and operator effects on top -- see this "
+        "module's docstring.",
+    )
+    parser.add_argument(
+        "--out-dir", type=Path, default=None,
+        help="Defaults to data/raw/ for --profile v1 (canonical) and "
+        "data/raw/realistic/ for --profile realistic, so both profiles' raw "
+        "CSVs can coexist on disk without the stress-test run ever "
+        "overwriting the v1 canonical files.",
+    )
     args = parser.parse_args()
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = args.out_dir
+    if out_dir is None:
+        out_dir = config.RAW_DIR if args.profile == "v1" else config.REALISTIC_RAW_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    args.out_dir = out_dir
 
     aircraft_df, components_df, snapshots_df, faults_df, maint_df = generate(
-        seed=args.seed, n_aircraft=args.n_aircraft
+        seed=args.seed, n_aircraft=args.n_aircraft, profile=args.profile
     )
 
     aircraft_df.to_csv(args.out_dir / "aircraft.csv", index=False)

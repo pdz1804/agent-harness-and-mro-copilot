@@ -38,6 +38,11 @@ DASHBOARD_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = DASHBOARD_DIR.parent
 REPORTS_DIR = PROJECT_ROOT / "reports"
 DOCS_DIR = PROJECT_ROOT / "docs"
+# --profile realistic (stress-test mode) writes its own parallel tree under
+# reports/realistic/ so it never overwrites the v1 canonical artifacts above
+# (see src/pipeline.py, src/config.py). Read-only here, purely for display --
+# v1 stays the headline, this is surfaced as a secondary "realistic" section.
+REALISTIC_REPORTS_DIR = REPORTS_DIR / "realistic"
 OUTPUT_PATH = DASHBOARD_DIR / "src" / "data" / "dashboard_data.json"
 
 MODEL_LABELS = {
@@ -237,6 +242,26 @@ def parse_dataset_summary(demo_evidence_path: Path) -> dict[str, Any]:
     }
 
 
+def parse_model_card(path: Path) -> dict[str, Any] | None:
+    """Optional: reports/model_card.json (written by src/pipeline.py). Not
+    an ArtifactError if missing -- older/partial runs may not have it yet --
+    but every phase-01 v2 field (calibration, threshold_policies, ci,
+    baselines, alert_rate) is sourced from here, verbatim, when present.
+    """
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def parse_multi_seed(path: Path) -> list[dict[str, Any]] | None:
+    """Optional: reports/multi_seed.csv, written by `python -m src.pipeline
+    --seeds N`. Absent unless a multi-seed run was performed."""
+    if not path.exists():
+        return None
+    with path.open(newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh))
+
+
 def parse_target(design_report_path: Path) -> dict[str, float]:
     text = _read(design_report_path)
     m = re.search(r"Target:\s*recall\s*>=\s*(\d+\.\d+),\s*alerts/100\s*<=\s*(\d+\.\d+)", text)
@@ -268,12 +293,30 @@ def build() -> dict[str, Any]:
         for model_id in MODEL_LABELS
     }
     high_risk_examples = parse_high_risk_examples(REPORTS_DIR / "high_risk_examples.md")
+    model_card = parse_model_card(REPORTS_DIR / "model_card.json")
+    multi_seed = parse_multi_seed(REPORTS_DIR / "multi_seed.csv")
 
+    # Optional secondary section: the realistic-profile stress test, read from
+    # its own parallel tree (reports/realistic/). Never required -- v1 above
+    # remains the headline result even if a realistic run has never happened.
+    realistic_model_card = parse_model_card(REALISTIC_REPORTS_DIR / "model_card.json")
+    realistic_metrics_path = REALISTIC_REPORTS_DIR / "metrics_table.md"
+    realistic_metrics_rows = (
+        parse_metrics_table(realistic_metrics_path) if realistic_metrics_path.exists() else None
+    )
+    realistic_multi_seed = parse_multi_seed(REALISTIC_REPORTS_DIR / "multi_seed.csv")
+
+    # metrics_table.md may also contain baseline rule rows (src/baselines.py,
+    # phase-01 requirement #2) appended by src/pipeline.py's realistic-profile
+    # run -- those are reported via model_card["baselines"] (parse_model_card
+    # above, surfaced as "baselines_report") instead, since they have no
+    # per-threshold sweep CSV of their own (not a trained model). Only the
+    # two ML models get the full per-threshold sweep treatment here.
     models: list[dict[str, Any]] = []
     for row in metrics_rows:
         model_id = row["model"]
         if model_id not in MODEL_LABELS:
-            raise ArtifactError(f"unexpected model id in metrics_table.md: {model_id!r}")
+            continue
         sweep = threshold_sweeps[model_id]
         chosen_threshold = float(row["chosen_threshold"])
         val_row = find_sweep_row_at_threshold(sweep, chosen_threshold)
@@ -326,6 +369,28 @@ def build() -> dict[str, Any]:
         "threshold_sweep_split": "validation",
         "feature_importance": feature_importance,
         "high_risk_examples": high_risk_examples,
+        # phase-01 v2 additions -- None when reports/model_card.json / multi_seed.csv
+        # are absent (older or partial runs), never fabricated.
+        "model_card": model_card,
+        "calibration": (model_card or {}).get("calibration"),
+        "threshold_policies": (model_card or {}).get("threshold_policies"),
+        "served_policy": (model_card or {}).get("served_policy"),
+        "ci": (model_card or {}).get("ci"),
+        "alert_rate": (model_card or {}).get("alert_rate"),
+        "alert_rate_definition": (model_card or {}).get("alert_rate_definition"),
+        "baselines_report": (model_card or {}).get("baselines"),
+        "multi_seed": multi_seed,
+        # Secondary, optional: realistic-profile stress test (coordinator
+        # decision -- v1 above stays the headline/served result). None of
+        # this is present until `python -m src.pipeline --profile realistic`
+        # has been run at least once.
+        "realistic": {
+            "model_card": realistic_model_card,
+            "metrics_table": realistic_metrics_rows,
+            "multi_seed": realistic_multi_seed,
+        }
+        if realistic_model_card is not None
+        else None,
     }
 
 

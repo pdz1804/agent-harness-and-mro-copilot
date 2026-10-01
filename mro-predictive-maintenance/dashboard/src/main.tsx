@@ -1,7 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import "./index.css";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
+import "./styles/tokens.css";
+import "./styles/components.css";
+import "./styles/shell.css";
+import "./styles/features.css";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {

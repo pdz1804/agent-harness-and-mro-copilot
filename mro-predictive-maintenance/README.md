@@ -172,6 +172,129 @@ new artifacts -- the service loads them once at startup, by design (one
 process serves one model version at a time; roll a new one by retrain +
 restart, not a hot-reload).
 
+## v3 — ops layer + HITL maintenance copilot
+
+v3 adds an ops domain (alerts/work orders/reliability KPIs in SQLite),
+MLflow-backed training/registry/drift monitoring, a maintenance knowledge
+base with hybrid retrieval, and a Pydantic AI copilot with human-in-the-loop
+(HITL) approval for any write action. The v1 pipeline above (steps 1-4,
+`reports/model_card.json`, `models/v1/`) is untouched and still reproduces
+byte-for-byte (`--profile v1`: HGB threshold 0.9405, test recall 0.8214 /
+23 of 28, 0 false positives). A second, harder `--profile realistic`
+(`reports/realistic/`) is the honest stress test -- see
+`docs/design-report.md` for why v1's numbers were too easy.
+
+### One-command run (service + dashboard)
+
+```powershell
+cd mro-predictive-maintenance
+.\.venv\Scripts\python.exe data\generate_dataset.py --seed 42
+.\.venv\Scripts\python.exe -m src.pipeline                      # profile=v1 (default)
+.\.venv\Scripts\python.exe -m src.pipeline --profile realistic  # the stress-test profile
+.\.venv\Scripts\python.exe -m uvicorn src.service.app:app --port 8100   # do NOT use 8000/8100 for ad-hoc testing -- 8100 is the one fixed dev port; use 8101 for any extra/live verification server
+cd dashboard; npm install; npm run dev   # -> http://localhost:5173/
+```
+
+The copilot runs **offline-scripted by default** (deterministic, no network,
+no API key). Export `OPENAI_API_KEY` before starting the service to switch
+it to a real OpenAI backend (`gpt-4o-mini`); `GET /copilot/meta` reports
+`mode: "offline-scripted" | "openai"`.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph Data
+        GEN[data/generate_dataset.py] --> FEAT[src/features.py]
+    end
+    subgraph Model
+        FEAT --> SPLIT[src/splitting.py] --> TRAIN[src/modeling.py + src/calibration.py]
+        TRAIN --> EVAL[src/evaluation.py<br/>thresholds + CIs + baselines]
+    end
+    subgraph MLOps
+        EVAL --> MLF[src/tracking.py<br/>MLflow run + registry alias champion]
+        MLF --> STORE[src/service/model_store.py]
+        STORE --> DRIFT[src/monitoring.py<br/>PSI drift + retrain gate]
+    end
+    subgraph Ops
+        STORE --> SCAN[POST /ops/fleet-scan]
+        SCAN --> ALERTS[(alerts / predictions<br/>src/ops/* SQLite)]
+        ALERTS --> AUTOMATION[src/copilot/automations.py]
+    end
+    subgraph Copilot
+        AUTOMATION --> AGENT[src/copilot/agent.py<br/>tools + guardrails]
+        KB[kb/*.md<br/>src/copilot/retrieval.py] --> AGENT
+        AGENT -->|deferred: approval / ask_user| HITL[src/copilot/hitl.py<br/>pause + persist]
+        HITL --> WO[(work_orders)]
+    end
+    subgraph UI
+        WO --> DASH[dashboard/src<br/>Fleet / Alerts / Work orders / Copilot / Monitoring]
+        DRIFT --> DASH
+    end
+```
+
+### Dashboard tour (every tab, what it calls)
+
+| Nav | Tab | Backed by |
+|---|---|---|
+| Operations | Fleet | `GET /fleet/top-risk` (live scoring of the held-out test split) |
+| Operations | Alerts | `GET /ops/alerts`, `POST /ops/alerts/{id}/transition` |
+| Operations | Work orders | `GET /ops/work-orders`, `POST /ops/work-orders/{id}/close` |
+| Operations | Knowledge base | `GET /kb`, `POST /kb/search` (hybrid BM25+TF-IDF retrieval) |
+| Operations | Copilot | `POST /copilot/runs` + SSE stream, resolve/cancel, `POST /copilot/fleet-scan` |
+| Model | Performance | `GET /model-card`, threshold sweep, calibration reliability curve |
+| Model | Explainability | permutation importance + SHAP (`reports/feature_importance_*.csv`) |
+| Model | Monitoring | `GET /monitoring/drift`, `GET /monitoring/performance`, `GET /models` (registry) |
+| About | Overview / Architecture / How it works / Production design | static narrative, cross-linking to `docs/design-report.md` |
+
+### Identities / roles
+
+The copilot seeds three demo identities (`GET /copilot/meta` → `seeded_users`),
+picked in the dashboard's identity switcher (top bar):
+
+| id | role | can approve/deny work-order + grounding approvals? |
+|---|---|---|
+| `lead.engineer` | lead | yes |
+| `planner` | planner | yes |
+| `viewer` | viewer | **no** — `POST /copilot/runs/{id}/resolve` returns `403` for approval/deny; a viewer may still answer `ask_user` clarifications (no write action on that path) |
+
+This is a demo-grade identity picker (`X-User` header, no session/password) —
+not real authentication; see Limitations.
+
+### Env vars
+
+| Var | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///data/ops.db` | ops store (alerts/work orders/predictions/copilot runs) |
+| `OPENAI_API_KEY` | unset | switches the copilot from offline-scripted to real OpenAI (`gpt-4o-mini`) |
+| `SERVICE_CORS_ORIGINS` | dashboard dev/preview ports | CORS allow-list for the dashboard |
+| `VITE_SERVICE_BASE_URL` | `http://localhost:8100` | dashboard → service base URL |
+| `MLFLOW_DISABLE_AGENT_HINT` | unset | silence MLflow's assistant-skill hint in test output |
+
+### Test commands
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q                       # full suite, offline scripted copilot
+$env:OPENAI_API_KEY = "<key>"; .\.venv\Scripts\python.exe -m pytest -q -m live   # + opt-in real-LLM tests
+.\.venv\Scripts\python.exe -m pytest -q -m e2e                 # scripted end-to-end scenario only
+cd dashboard; npm run build; npm test -- --run
+```
+
+### Known limitations
+
+- **No real authentication** — the identity picker is a demo header
+  (`X-User`), not login/session/password.
+- **SQLite single-writer** — fine for a demo/POC; a real deployment needs
+  Postgres for concurrent writers.
+- **Fictional knowledge base** — `kb/*.md` are authored-for-this-test
+  maintenance procedures, not real OEM AMM/MEL content; KB eval numbers
+  (below) measure retrieval quality against this fictional corpus only.
+- **Offline mode is a scripted router**, not a smaller real LLM — it proves
+  the HITL plumbing deterministically but isn't a quality bar on language
+  understanding the way the real OpenAI mode is.
+- Synthetic dataset only — see `docs/design-report.md` for why v1's profile
+  was too easy and what the `realistic` profile does differently.
+
 ## Dependencies
 
 `requirements.txt`: pandas, numpy, scikit-learn, matplotlib, scipy, joblib,

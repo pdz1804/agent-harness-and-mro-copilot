@@ -1,4 +1,4 @@
-# Model comparison (this run)
+# Model comparison (this run, profile=v1)
 
 Test split: 2515 rows, 28 positive (1.113%)
 

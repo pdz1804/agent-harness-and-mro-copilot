@@ -55,6 +55,12 @@ class ScoreResponse(BaseModel):
     alert: bool
     explanation_method: str
     top_factors: list[ShapFactor]
+    # "calibrated" if the isotonic/sigmoid-calibrated pipeline produced
+    # risk_score (src/calibration.py), "raw" if the underlying model's
+    # uncalibrated probability was used (no calibrated artifact available --
+    # e.g. the v1 canonical model, which was never calibrated). Additive
+    # field so older clients ignoring it still work (phase-02 requirement).
+    scoring_mode: str = "raw"
 
 
 class ModelCardResponse(BaseModel):
@@ -69,6 +75,22 @@ class ModelCardResponse(BaseModel):
     test_at_threshold: dict
     numeric_features: list[str]
     categorical_features: list[str]
+    # v2 fields (phase-01 ML rigor): additive, all optional so the v1-shaped
+    # model card (reports/model_card.json written with --profile v1) still
+    # validates -- see src/pipeline.py _run_v1 vs _run_realistic.
+    profile: Optional[str] = None
+    val_status: Optional[str] = None
+    test_status: Optional[str] = None
+    served_policy: Optional[str] = None
+    threshold_policies: Optional[dict] = None
+    calibration: Optional[dict] = None
+    ci: Optional[dict] = None
+    alert_rate_definition: Optional[str] = None
+    alert_rate: Optional[dict] = None
+    baselines: Optional[dict] = None
+    # phase-02: which registry version is actually being served -- None
+    # means "local joblib artifact" (registry unreachable/empty).
+    model_version: Optional[str] = None
 
 
 class FleetRiskItem(BaseModel):
@@ -96,3 +118,4 @@ class HealthResponse(BaseModel):
     status: str
     model_id: Optional[str] = None
     model_loaded: bool
+    model_version: Optional[str] = None

@@ -151,12 +151,12 @@ oversampling before a group split risks generating synthetic neighbors
 that straddle the train/test boundary; reweighting only touches the loss
 function inside the training fold and has no such risk.
 
-### 3.1 Results (this run, seed 42)
+### 3.1 Results (post-leakage-fix run, seed 42 -- see 7.1)
 
 | model | val ROC-AUC | val PR-AUC | test ROC-AUC | test PR-AUC |
 |---|---|---|---|---|
-| logistic_regression | 0.9984 | 0.9768 | 0.9995 | 0.9628 |
-| hist_gradient_boosting | 0.9986 | 0.9691 | 0.9996 | 0.9710 |
+| logistic_regression | 0.9944 | 0.9256 | 0.9957 | 0.8821 |
+| hist_gradient_boosting | 0.9986 | 0.9682 | 0.9996 | 0.9733 |
 
 Both models separate the classes very well on this synthetic panel (see
 Limitations, 7.1, for why this is probably somewhat optimistic relative to
@@ -175,22 +175,24 @@ reported as-is.
 
 | model | threshold (chosen on val) | val status | **test recall** | **test precision** | **test alerts/100** |
 |---|---|---|---|---|---|
-| logistic_regression | 0.9851 | both constraints met | **0.8214** | 1.0000 | **0.91** |
-| hist_gradient_boosting | 0.9900 | both constraints met | **0.6786** | 1.0000 | **0.76** |
+| logistic_regression | 0.9801 | both constraints met | **0.7143** | 1.0000 | **0.80** |
+| hist_gradient_boosting | 0.9405 | both constraints met | **0.8214** | 1.0000 | **0.91** |
 
 Target: recall >= 0.80, alerts/100 <= 5.0.
 
-**Logistic regression hits the target on the held-out test split**: 0.8214
+**HistGradientBoosting hits the target on the held-out test split**: 0.8214
 recall (23/28 real unscheduled removals caught) at 0.91 alerts per 100
-components -- well inside the 5-per-100 budget. **HistGradientBoosting does
+components -- well inside the 5-per-100 budget. **Logistic regression does
 not**, despite its threshold also satisfying both constraints on
-validation: applied to test, its recall drops to 0.6786 (19/28). This
-val->test gap for HGB (val recall ~0.88-0.90 in that threshold region vs.
-0.68 on test) is reported honestly rather than re-picking a lower, more
+validation: applied to test, its recall drops to 0.7143 (20/28). This
+val->test gap is reported honestly rather than re-picking a lower, more
 lenient threshold after the fact -- doing so would be tuning to the test
-set. **Logistic regression is selected as the primary/deployed model** for
-this reason (see 3.1's PR-AUC also very close between the two, so this
-isn't a large sacrifice in overall ranking quality).
+set. **HistGradientBoosting is selected as the primary/deployed model** for
+this reason. (Before the 7.1 leakage fix, the roles were reversed --
+logistic regression met the target and HGB did not. Removing the leaking
+feature changed which model generalizes best from validation to test; this
+is exactly the kind of thing the fix was supposed to surface honestly,
+not hide.)
 
 Full sweep (both models) is in `reports/threshold_sweep_*.csv`; verbatim
 excerpts are in `docs/demo-evidence.md`.
@@ -204,19 +206,22 @@ has no native `feature_importances_` (unlike RandomForest); this is
 documented in `src/explainability.py` rather than silently working around
 it, and permutation importance is used for both models uniformly instead.
 
-Top permutation-importance features for logistic_regression (val split):
+Top permutation-importance features for hist_gradient_boosting (the deployed
+model, val split):
 
 | feature | importance |
 |---|---|
-| cycles_since_last_check | 0.624 |
-| pressure_delta_psi | 0.065 |
-| temperature_delta_c | 0.058 |
-| vibration_mm_s | 0.039 |
-| component_type | 0.024 |
+| check_count_last_1500cyc | 0.731 |
+| temperature_delta_c | 0.042 |
+| pressure_delta_psi | 0.019 |
+| vibration_mm_s | 0.018 |
+| aircraft_age_years | 0.009 |
 
-`cycles_since_last_check` dominates by a wide margin -- see 7.1 for why,
-and why this is a known characteristic of the synthetic generator rather
-than a bug.
+`check_count_last_1500cyc` (a *scheduled*-maintenance-program signal, kept
+deliberately distinct from the removed symptom-triggered-inspection leak --
+see 7.1) dominates by a wide margin: more scheduled checks in a fixed
+window is itself informative of a component nearing its maintenance
+interval, which is a legitimate, non-leaking signal.
 
 **Local:** SHAP (`pip install shap` installed cleanly, no GPU) --
 `TreeExplainer`/generic `Explainer` for HGB, `LinearExplainer` for the
@@ -384,6 +389,157 @@ production number.
 - Cost-sensitive threshold selection (weighting a missed unscheduled
   removal against the cost of an unnecessary inspection) instead of the
   fixed 80%-recall/5-per-100 operating point, once real cost data exists.
+
+---
+
+## 8. v3 results — an honest accounting
+
+Everything below traces to a committed artifact: `reports/model_card.json`
+(v1), `reports/realistic/model_card.json` (realistic), `reports/retrieval_eval.json`
+(KB), or a named test in `tests/`.
+
+### 8.1 v1 headline (unchanged, byte-for-byte)
+
+| Metric | Value | Source |
+|---|---|---|
+| Model | `hist_gradient_boosting` | `reports/model_card.json` |
+| Served threshold | 0.9405 | `model_card.json:threshold` |
+| Test recall | 0.8214 (23/28 positives) | `model_card.json:test_at_threshold` |
+| 95% CI on recall (Wilson, n=28) | ≈ [0.64, 0.92] | `reports/research-and-gap-analysis.md` §W3; 23/28 is too few positives for the "target met" framing to be statistically tight — this is the honest caveat v1 didn't carry |
+| False positives | 0 | `model_card.json:test_at_threshold.fp` |
+| Alerts per 100 (row-based) | 0.91 | `model_card.json:test_at_threshold.alerts_per_100` |
+
+v1's 0 FP / 0.91-alerts-per-100 result looks better than it is: 28 test
+positives is a small sample, the alert-rate definition is per-row (not
+per-component-per-decision-window), and there's no rule baseline or
+cost model to compare against. Section 8.2 is what a senior reviewer
+would ask for next.
+
+### 8.2 The realistic stress test
+
+`--profile realistic` (`reports/realistic/model_card.json`) regenerates a
+harder synthetic population (more confounded features, less separable
+classes) and re-splits/retrains/recalibrates from scratch — it does not
+touch v1's artifacts.
+
+| Metric | v1 (easy) | realistic |
+|---|---|---|
+| Test ROC-AUC | 0.9996 | 0.9813 |
+| Test PR-AUC | 0.9733 | **0.2027** |
+| Served threshold | 0.9405 | **0.01** |
+| Served policy | `min_alerts` | `max_recall_within_budget` |
+
+The realistic profile's PR-AUC of 0.203 is the honest number: at a
+positive rate of ~1%, ROC-AUC alone is a poor difficulty signal (it
+stayed above 0.98) while PR-AUC collapses, which is exactly the
+imbalanced-classification failure mode ROC-AUC hides. The served
+threshold is **0.01** — a fragile operating point: it sits just above
+the score floor, so small shifts in the score distribution (exactly what
+section 8.4's drift monitor watches for) can swing alert volume sharply.
+This is disclosed, not hidden, in the model card (`threshold_policies`
+carries all three candidate operating points side by side so the
+fragility is visible, not just the one served number).
+
+### 8.3 Rule baselines and calibration
+
+Two non-ML rule baselines were run on the same realistic test split for
+comparison (`reports/realistic/model_card.json:baselines`):
+
+| Baseline | Recall | Precision | Alerts/100 | 95% CI (recall) |
+|---|---|---|---|---|
+| Age-only rule | 0.04 | 1.00 | 0.04 | [0.00, 0.11] |
+| Fault-count rule | 0.48 | 0.23 | 2.00 | [0.23, 0.71] |
+| **HGB (realistic, served)** | **0.96** | 0.53 | 3.48 | [0.82, 1.00] |
+
+The model clears both hand-written rules by a wide margin on recall,
+at the cost of precision the rule baselines don't pay — exactly the
+trade-off a cost model should arbitrate (see `min_expected_cost` policy,
+`reports/realistic/model_card.json`, expected cost 166,000 at the
+`max_recall_within_budget`/`min_expected_cost` threshold vs. the
+`min_alerts` policy's tighter 67-alert budget).
+
+Calibration (`realistic/model_card.json:calibration`, sigmoid/Platt
+fallback due to too few positives for isotonic): Brier score 0.0157 → 0.0096
+post-calibration; ECE 0.0325 → 0.0027. Calibration improves score
+trustworthiness for ranking/cost-weighting even though the served decision
+is still a fixed threshold.
+
+### 8.4 Drift monitoring
+
+`GET /monitoring/drift` (`src/monitoring.py`, PSI per feature + score PSI):
+
+- **Unshifted current window**: `status: "warn"` (not `"alert"`) —
+  `temperature_delta_c` PSI ≈0.107 and `airflow_cfm` PSI ≈0.225 sit in the
+  PSI "moderate" band; score-level drift is `"ok"`. This is a **warn, not
+  no alert and not a false alarm** — it correctly flags mild, expected
+  feature drift without crying wolf.
+- **`?simulate=shift`**: `status: "alert"` — `vibration_mm_s` PSI ≈1.205,
+  well past the alert band. Verified live on `:8100` (registry v13) and by
+  `tests/test_monitoring.py` / `tests/test_e2e_scenario.py`.
+
+### 8.5 Knowledge-base retrieval eval
+
+`reports/retrieval_eval.json`, 22 docs / 98 chunks, 50 queries split into
+an easy slice (title-keyword queries, gated pass/fail) and a hard slice
+(paraphrase / symptom-only / cross-chapter confusers, measured and
+reported but not gated — see `reports/kb-eval-hardening-report.md` for why
+gating an intentionally-hard slice would be self-defeating):
+
+| Slice | bm25 recall@1 | tfidf recall@1 | hybrid recall@1 |
+|---|---|---|---|
+| Easy (gated, threshold 0.85) | 0.96 | 0.84 | **0.96** (recall@3 = 1.00, gate passes) |
+| Hard (informational) | 0.68 | 0.76 | 0.76 |
+
+The hard slice discriminates as intended (no more 1.00-across-the-board
+false comfort); one confusable case (avionics fan MEL relief text vs. a
+POL-alerting document) is missed by all three retrievers and disclosed in
+`kb-eval-hardening-report.md` rather than papered over.
+
+### 8.6 Copilot: human-in-the-loop design
+
+`src/copilot/` (Pydantic AI): ≥6 tools (score, explain, fleet lookup, KB
+search, reliability KPIs, `create_work_order`), with two categories of
+**deferred** tool call that always pause the run rather than execute:
+
+- **`create_work_order` (approval-gated)** — the model proposes args, the
+  run pauses in `awaiting_input`, a human (role-gated: `lead.engineer`/
+  `planner` yes, `viewer` no — real `403`, never a silent no-op) approves,
+  denies, or edits specific fields (`override_args`, validated against a
+  strict field allow-list — unknown/bookkeeping keys are rejected `422`,
+  regression-tested in `tests/test_copilot_api.py`) before the tool ever
+  runs. Exactly one work order is created per approval — the earlier
+  raw-args-shape bug that caused a resume→re-defer loop is fixed and
+  regression-tested (`test_ui_shaped_resolve_plain_approve_sends_no_override_args_and_creates_exactly_one_wo`).
+- **`ask_user`** — ambiguous requests produce an options card or accept
+  free text; answering resumes the run without any write action, so it is
+  **not** role-gated (a viewer may answer).
+- **Loop guard**: a run cannot re-defer the same tool call indefinitely —
+  covered by `tests/test_copilot_hitl.py`.
+- **Legacy cleanup**: pre-fix pending rows using the old `{"raw": ...}`
+  args shape are auto-cancelled on load, surfaced as "stale – cancelled",
+  and audited (never deleted, never resolvable) —
+  `tests/test_copilot_api.py::test_cleanup_legacy_pending_cancels_raw_shaped_rows_idempotently`.
+
+Guardrails: every procedural claim the copilot makes must cite a KB doc id
+that actually exists (grounding guardrail test), and prompt-injection text
+embedded in KB content or user input does not trigger tool calls
+(`tests/test_copilot_guardrails.py`).
+
+### 8.7 What an interviewer would probe — and what's still missing
+
+Likely probes: why PR-AUC over ROC-AUC on an imbalanced set; why the
+served realistic threshold (0.01) is fragile and what operational
+guardrail compensates for that (drift monitor + the two alternate
+threshold policies always reported alongside it); why the KB hard slice
+isn't gated; why approval is server-role-gated rather than UI-only; how
+the loop guard differs from a hard-coded retry cap; why SQLite is
+acceptable here but not for production.
+
+Still missing (by decision, see `plan.md` acceptance criteria and
+coordinator follow-ups): multi-seed variance beyond the single realistic
+run reported here, a real authentication system (identity picker is
+demo-grade), a non-fictional KB corpus, and a curated adversarial
+prompt-injection corpus beyond the guardrail test's fixtures.
 
 ---
 Author: Phu Nguyen — HCMC, VN
