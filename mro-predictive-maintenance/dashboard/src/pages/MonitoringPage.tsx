@@ -12,6 +12,7 @@ import { RetrainPanel } from "../components/RetrainPanel";
 import { DataTable, type Column } from "../components/ui/data-table";
 import { ButtonLink, Chip, PageHead, Panel, StatBar, Switch } from "../components/ui/primitives";
 import { EmptyState, LoadingRows, Notice, ServiceStatusBanner } from "../components/ui/states";
+import { ActivityIcon, ChartIcon, FileIcon, GaugeIcon } from "../components/ui/icons";
 import type { DashboardData, RegistryVersion } from "../types";
 
 /** PSI bar scale: 0 .. PSI_MAX. The warn/alert bands are drawn on the track. */
@@ -75,10 +76,16 @@ export function MonitoringPage({ data }: { data: DashboardData }) {
           <StatBar
             label="Drift summary"
             items={[
-              { label: "Overall", value: <Chip tone={driftTone(drift.overall)}>{driftLabel(drift.overall)}</Chip>, sub: `warn above ${warnAt}, alert above ${alertAt}` },
-              { label: "Score PSI", value: drift.scorePsi !== null ? formatDecimal(drift.scorePsi, 3) : "n/a", sub: driftLabel(drift.scoreStatus ?? "ok") },
-              { label: "Reference rows", value: drift.nReference ?? "n/a", sub: "training profile" },
-              { label: "Current rows", value: drift.nCurrent ?? "n/a", sub: `source: ${drift.source.replace(/_/g, " ")}` },
+              { icon: <GaugeIcon />, label: "Overall", value: <Chip tone={driftTone(drift.overall)}>{driftLabel(drift.overall)}</Chip>, sub: `warn above ${warnAt}, alert above ${alertAt}` },
+              {
+                icon: <ActivityIcon />,
+                label: "Score PSI",
+                value: drift.scorePsi !== null ? formatDecimal(drift.scorePsi, 3) : "n/a",
+                sub: driftLabel(drift.scoreStatus ?? "ok"),
+                trend: timeline.map((p) => p.scorePsi).filter((v): v is number => v !== null),
+              },
+              { icon: <FileIcon />, label: "Reference rows", value: drift.nReference ?? "n/a", sub: "training profile" },
+              { icon: <ChartIcon />, label: "Current rows", value: drift.nCurrent ?? "n/a", sub: `source: ${drift.source.replace(/_/g, " ")}` },
             ]}
           />
         </>

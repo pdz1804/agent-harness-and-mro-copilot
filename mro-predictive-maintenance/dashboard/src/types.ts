@@ -349,6 +349,7 @@ export interface CopilotPendingItem {
    * actionable run apart from one whose only pending row was auto-cancelled
    * by the legacy cleanup (see `RunList`'s "stale -- cancelled" label). */
   run_id?: string;
+  tool_call_id?: string;
   /** Present (and not "pending") only for a pre-fix legacy row auto-
    * cancelled by the one-shot `cleanup_legacy_pending` startup migration --
    * rendered as a read-only "stale -- cancelled" card, never an editable
@@ -362,6 +363,21 @@ export interface CopilotMessage {
   content?: string;
   tool_name?: string;
   args?: Record<string, unknown>;
+  /** Pairs a call with its result and its resolved pending item. */
+  tool_call_id?: string;
+}
+
+/** A pending item a human already resolved (`GET /copilot/runs/{id}` -> `resolved`). */
+export interface CopilotResolvedItem {
+  id: string;
+  tool_call_id: string | null;
+  kind: string;
+  tool_name: string | null;
+  decision: "approve" | "deny" | "answer" | string | null;
+  note: string | null;
+  option_id: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
 }
 
 export interface CopilotRunDetail {
@@ -374,6 +390,8 @@ export interface CopilotRunDetail {
   final_answer: string | null;
   messages: CopilotMessage[];
   pending: CopilotPendingItem[];
+  /** Absent on servers older than the resolved-items field. */
+  resolved?: CopilotResolvedItem[];
 }
 
 export interface CopilotMeta {

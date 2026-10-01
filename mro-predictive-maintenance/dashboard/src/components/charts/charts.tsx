@@ -1,8 +1,9 @@
 import { useState } from "react";
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
@@ -18,16 +19,29 @@ import { Button } from "../ui/primitives";
 
 /** Recharts takes literal colours; keep them in step with tokens.css. */
 export const CHART = {
-  grid: "#dde2e8",
-  axis: "#5a6772",
-  accent: "#0b6b8a",
-  bad: "#b42318",
-  badBand: "rgba(180, 35, 24, 0.07)",
-  warn: "#b8770a",
-  warnBand: "rgba(184, 119, 10, 0.1)",
-  text: "#101820",
-  baseline: "#7d8b98",
+  grid: "#eceef2",
+  axis: "#5c6576",
+  accent: "#3451d1",
+  bad: "#dc4436",
+  badBand: "rgba(220, 68, 54, 0.06)",
+  badBorder: "rgba(220, 68, 54, 0.3)",
+  warn: "#d48a06",
+  warnBand: "rgba(212, 138, 6, 0.08)",
+  warnBorder: "rgba(212, 138, 6, 0.35)",
+  text: "#0b1220",
+  baseline: "#98a1b3",
 };
+
+/** Vertical gradient for the soft fill under a line. */
+function Fade({ id, color }: { id: string; color: string }) {
+  return (
+    <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stopColor={color} stopOpacity={0.2} />
+      <stop offset="100%" stopColor={color} stopOpacity={0} />
+    </linearGradient>
+  );
+}
+const AXIS_TICK = { fontSize: 11, fill: CHART.axis };
 
 const fmtDay = (ts: number) =>
   new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -38,10 +52,10 @@ const tickFormatterFor = (span: number) => (span < 3_600_000 ? fmtSecs : fmtDay)
 
 /** Plain ring marker. The default recharts dot inherits the line's dash
  * pattern, which renders as stray glyphs on a dashed series. */
-function plainDot(color: string, r = 3.5) {
+function plainDot(color: string, r = 3) {
   return (props: { cx?: number; cy?: number; index?: number }) =>
     typeof props.cx === "number" && typeof props.cy === "number" ? (
-      <circle key={props.index} cx={props.cx} cy={props.cy} r={r} fill="#fff" stroke={color} strokeWidth={2} strokeDasharray="0" />
+      <circle key={props.index} cx={props.cx} cy={props.cy} r={r} fill="#fff" stroke={color} strokeWidth={1.75} strokeDasharray="0" />
     ) : (
       <g key={props.index} />
     );
@@ -83,7 +97,7 @@ export function RiskHistoryChart({ points, threshold }: { points: RiskPoint[]; t
             <i className="swatch is-dash" /> <span style={{ color: "var(--text-2)" }}>Alert threshold {formatPct(threshold, 2)}</span>
           </span>
           <span>
-            <i className="swatch" style={{ background: CHART.badBand, border: "1px solid #f1b4ad" }} />
+            <i className="swatch" style={{ background: CHART.badBand, boxShadow: `inset 0 0 0 1px ${CHART.badBorder}` }} />
             Alert zone
           </span>
         </div>
@@ -120,8 +134,8 @@ export function RiskHistoryChart({ points, threshold }: { points: RiskPoint[]; t
       ) : (
         <div className="chart-box" role="img" aria-label={`Risk per fleet scan, ${data.length} point${data.length === 1 ? "" : "s"}, against a threshold of ${formatPct(threshold, 2)}`}>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: y.zoomed ? 8 : 0 }}>
-              <CartesianGrid stroke={CHART.grid} vertical={false} />
+            <ComposedChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: y.zoomed ? 8 : 0 }}>
+              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 4" vertical={false} />
               <ReferenceArea y1={threshold} y2={1} fill={CHART.badBand} />
               <XAxis
                 dataKey="ts"
@@ -129,8 +143,8 @@ export function RiskHistoryChart({ points, threshold }: { points: RiskPoint[]; t
                 scale="time"
                 domain={domain}
                 tickFormatter={fmtDay}
-                tick={{ fontSize: 11, fill: CHART.axis }}
-                stroke={CHART.grid}
+                tick={AXIS_TICK}
+                stroke="transparent"
                 tickCount={single ? 3 : 5}
                 minTickGap={40}
               />
@@ -139,8 +153,8 @@ export function RiskHistoryChart({ points, threshold }: { points: RiskPoint[]; t
                 ticks={y.ticks}
                 allowDataOverflow
                 tickFormatter={(v: number) => `${Math.round(v * 1000) / 10}%`}
-                tick={{ fontSize: 11, fill: CHART.axis }}
-                stroke={CHART.grid}
+                tick={AXIS_TICK}
+                stroke="transparent"
                 width={y.zoomed ? 80 : 46}
                 label={{
                   value: y.zoomed ? `zoomed axis, from ${formatPct(y.domain[0], 0)}` : "risk",
@@ -172,17 +186,21 @@ export function RiskHistoryChart({ points, threshold }: { points: RiskPoint[]; t
                   );
                 }}
               />
+              <defs>
+                <Fade id="fade-risk" color={CHART.bad} />
+              </defs>
+              <Area dataKey="risk" type="monotone" stroke="none" fill="url(#fade-risk)" baseValue={y.domain[0]} isAnimationActive={false} activeDot={false} tooltipType="none" />
               <Line
                 dataKey="risk"
                 type="monotone"
                 stroke={CHART.bad}
                 strokeWidth={2}
-                dot={{ r: 4, fill: "#fff", stroke: CHART.bad, strokeWidth: 2 }}
-                activeDot={{ r: 5 }}
+                dot={{ r: 3, fill: "#fff", stroke: CHART.bad, strokeWidth: 1.75 }}
+                activeDot={{ r: 4.5, strokeWidth: 2, stroke: "#fff" }}
                 isAnimationActive={false}
                 label={single ? { position: "top", fontSize: 11, fill: CHART.text, formatter: (v: number) => formatPct(v, 1) } : undefined}
               />
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}
@@ -225,11 +243,11 @@ export function DriftTimelineChart({
             </span>
           )}
           <span>
-            <i className="swatch" style={{ background: CHART.warnBand, border: "1px solid #e9cf94" }} />
+            <i className="swatch" style={{ background: CHART.warnBand, boxShadow: `inset 0 0 0 1px ${CHART.warnBorder}` }} />
             Warn above {warnAt}
           </span>
           <span>
-            <i className="swatch" style={{ background: CHART.badBand, border: "1px solid #f1b4ad" }} />
+            <i className="swatch" style={{ background: CHART.badBand, boxShadow: `inset 0 0 0 1px ${CHART.badBorder}` }} />
             Alert above {alertAt}
           </span>
         </div>
@@ -277,8 +295,8 @@ export function DriftTimelineChart({
       ) : (
         <div className="chart-box" role="img" aria-label={`PSI drift timeline, ${points.length} snapshot${points.length === 1 ? "" : "s"}`}>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
-              <CartesianGrid stroke={CHART.grid} vertical={false} />
+            <ComposedChart data={points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
+              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 4" vertical={false} />
               <ReferenceArea y1={warnAt} y2={alertAt} fill={CHART.warnBand} />
               <ReferenceArea y1={alertAt} y2={top * 1.05} fill={CHART.badBand} />
               <XAxis
@@ -287,16 +305,16 @@ export function DriftTimelineChart({
                 scale="time"
                 domain={domain}
                 tickFormatter={tickFormatterFor(span)}
-                tick={{ fontSize: 11, fill: CHART.axis }}
-                stroke={CHART.grid}
+                tick={AXIS_TICK}
+                stroke="transparent"
                 tickCount={single ? 3 : 4}
                 minTickGap={60}
               />
               <YAxis
                 domain={[0, top * 1.05]}
                 tickFormatter={(v: number) => v.toFixed(2)}
-                tick={{ fontSize: 11, fill: CHART.axis }}
-                stroke={CHART.grid}
+                tick={AXIS_TICK}
+                stroke="transparent"
                 width={42}
               />
               <ReferenceLine y={warnAt} stroke={CHART.warn} strokeDasharray="4 4" />
@@ -321,7 +339,13 @@ export function DriftTimelineChart({
                   );
                 }}
               />
-              <Line dataKey="scorePsi" stroke={CHART.accent} strokeWidth={2} dot={plainDot(CHART.accent)} activeDot={{ r: 5 }} isAnimationActive={false} connectNulls />
+              <defs>
+                <Fade id="fade-psi-score" color={CHART.accent} />
+                <Fade id="fade-psi-feature" color={CHART.warn} />
+              </defs>
+              <Area dataKey="maxFeaturePsi" stroke="none" fill="url(#fade-psi-feature)" isAnimationActive={false} activeDot={false} tooltipType="none" connectNulls />
+              <Area dataKey="scorePsi" stroke="none" fill="url(#fade-psi-score)" isAnimationActive={false} activeDot={false} tooltipType="none" connectNulls />
+              <Line dataKey="scorePsi" stroke={CHART.accent} strokeWidth={2} dot={plainDot(CHART.accent)} activeDot={{ r: 4.5, strokeWidth: 2, stroke: "#fff" }} isAnimationActive={false} connectNulls />
               {hasUnmonitored && (
                 <Line
                   dataKey="maxUnmonitoredPsi"
@@ -340,11 +364,11 @@ export function DriftTimelineChart({
                 stroke={CHART.warn}
                 strokeWidth={2}
                 dot={plainDot(CHART.warn)}
-                activeDot={{ r: 5 }}
+                activeDot={{ r: 4.5, strokeWidth: 2, stroke: "#fff" }}
                 isAnimationActive={false}
                 connectNulls
               />
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}

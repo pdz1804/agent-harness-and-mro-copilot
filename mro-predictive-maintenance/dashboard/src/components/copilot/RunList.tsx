@@ -5,19 +5,17 @@ interface RunListProps {
   runs: CopilotRunSummary[];
   activeRunId: string | null;
   onSelect: (runId: string) => void;
-  /** Run ids that have at least one genuinely actionable pending item
-   * (`GET /copilot/pending`, which never includes legacy-cancelled rows).
-   * A run whose DB status is still "awaiting_input" but isn't in this set
-   * has nothing left to resolve -- its only pending row was auto-cancelled
-   * by the startup cleanup migration -- and is shown as "stale -- cancelled"
-   * instead of a misleading "awaiting_input". */
-  actionableRunIds: Set<string>;
+  /** Runs the SERVER marked stale: an "awaiting_input" run whose only pending
+   * rows are legacy-cancelled (`GET /copilot/runs/{id}` legacy view). Never
+   * inferred from a missing pending item -- a run mid-resume has none either. */
+  staleRunIds: Set<string>;
 }
 
 function statusTone(status: string, isStaleRun: boolean): string {
   if (isStaleRun) return "neutral";
   if (status === "awaiting_input") return "bad";
   if (status === "completed") return "good";
+  if (status === "running") return "info";
   if (status === "failed") return "bad";
   return "neutral";
 }
@@ -42,12 +40,12 @@ export function runTime(iso: string, now: Date = new Date()): string {
 }
 
 /** Left column of the Copilot page: the run list. */
-export function RunList({ runs, activeRunId, onSelect, actionableRunIds }: RunListProps) {
+export function RunList({ runs, activeRunId, onSelect, staleRunIds }: RunListProps) {
   return (
     <div className="runs" role="list" aria-label="Copilot runs">
       {runs.length === 0 && <p className="muted" style={{ padding: 16 }}>No runs yet. Ask something in the composer to start one.</p>}
       {runs.map((r) => {
-        const isStaleRun = r.status === "awaiting_input" && !actionableRunIds.has(r.id);
+        const isStaleRun = staleRunIds.has(r.id);
         const tone = statusTone(r.status, isStaleRun);
         return (
           <button
@@ -61,7 +59,7 @@ export function RunList({ runs, activeRunId, onSelect, actionableRunIds }: RunLi
           >
             <span className="run-title">{runTitle(r)}</span>
             <span className="run-top">
-              <Chip tone={tone as "good" | "bad" | "neutral"}>{statusLabel(r.status, isStaleRun)}</Chip>
+              <Chip tone={tone as "good" | "bad" | "neutral" | "info"}>{statusLabel(r.status, isStaleRun)}</Chip>
               <span className="run-time">
                 {r.trigger} · {runTime(r.created_at)}
               </span>

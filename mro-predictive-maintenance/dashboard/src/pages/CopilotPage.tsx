@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelCopilotRun,
   getCopilotMeta,
@@ -13,21 +13,50 @@ import {
 import { useCopilotStream } from "../hooks/useCopilotStream";
 import { useStickToBottom } from "../hooks/useStickToBottom";
 import { RunList } from "../components/copilot/RunList";
-import { ToolStep } from "../components/copilot/ToolStep";
+import { ToolCallBlock } from "../components/copilot/ToolCallBlock";
+import { buildTranscript } from "../lib/transcript";
 import { SafeMarkdown } from "../components/copilot/SafeMarkdown";
-import { ApprovalCard } from "../components/copilot/ApprovalCard";
-import { OptionCard } from "../components/copilot/OptionCard";
 import { Button, Chip } from "../components/ui/primitives";
 import { ServiceStatusBanner } from "../components/ui/states";
-import { ArrowDownIcon, SendIcon, StopIcon } from "../components/ui/icons";
+import { ArrowDownIcon, BellIcon, BotIcon, CloseIcon, FileIcon, GaugeIcon, PlaneIcon, SendIcon, StopIcon } from "../components/ui/icons";
 import { copilotModeLabel, copilotModeNote } from "../lib/labels";
 import { humanizeError, type HumanError } from "../lib/errors";
-import { IDENTITY_CHANGE_EVENT, canApprove } from "../lib/identity";
+import { IDENTITY_CHANGE_EVENT, canApprove, getCurrentUser } from "../lib/identity";
+import { runTitle } from "../components/copilot/RunList";
+import {
+  actionablePending,
+  effectiveStatus,
+  isSettledAfterResume,
+  isStaleRun as computeStaleRun,
+  legacyCancelledPending,
+} from "../lib/run-status";
 import { hrefFor } from "../lib/routes";
+import { finalizeResolutions, resolutionFor } from "../lib/tool-view";
 import type { CopilotMeta, CopilotPendingItem, CopilotRunDetail, CopilotRunSummary } from "../types";
 
 /** Plain-language one-liner for a drafted decision, used by the batch bar so
  * "what happens when I click Submit" is never a guess. */
+const STARTER_ICONS = [<GaugeIcon key="g" />, <BellIcon key="b" />, <FileIcon key="f" />, <PlaneIcon key="p" />];
+
+function AgentAvatar() {
+  return (
+    <span className="msg-avatar" aria-hidden="true">
+      <BotIcon />
+    </span>
+  );
+}
+
+/** Tools grouped by how the copilot may use them: read freely / needs your approval / asks you. */
+function groupTools(meta: CopilotMeta): { title: string; tools: string[] }[] {
+  const gated = new Set(meta.approval_gated_tools);
+  const deferred = new Set(meta.deferred_tools.filter((t) => !gated.has(t)));
+  return [
+    { title: "Read", tools: meta.tools.filter((t) => !gated.has(t) && !deferred.has(t)) },
+    { title: "Needs approval", tools: meta.tools.filter((t) => gated.has(t)) },
+    { title: "Asks you", tools: meta.tools.filter((t) => deferred.has(t)) },
+  ];
+}
+
 function summarizeDraft(res: CopilotResolution): string {
   if (res.decision === "deny") return "Deny";
   if (res.decision === "approve") return res.override_args ? "Approve (with edits)" : "Approve";
@@ -87,6 +116,18 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
   // reusing the same connection across a resolve/follow-up would never see
   // the new turn's events (see the hook's docstring for the full story).
   const [streamEpoch, setStreamEpoch] = useState(0);
+  // True from a successful resolve/follow-up until a fetched snapshot shows the
+  // resumed turn settled. The server keeps the DB status at "awaiting_input"
+  // for the whole resumed turn, so without this the UI read that window as
+  // "stale, cancelled" with a result-less tool call.
+  const [resuming, setResuming] = useState(false);
+  const resumingRef = useRef(false);
+  resumingRef.current = resuming;
+  // Decisions this session just submitted, keyed by tool name: labels the
+  // call's block "Approved by (me) at (time)" while the resumed turn runs.
+  // Live approval notes by pending id, merged into the resolutions at Submit.
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [localDecisions, setLocalDecisions] = useState<Record<string, { action: "approve" | "deny" | "answer"; actor: string; at: string }>>({});
 
   const { streamingText, terminal } = useCopilotStream(activeRunId, streamEpoch);
 
@@ -123,12 +164,15 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
       .then((d) => {
         setDetail(d);
         setDrafts({});
+        if (resumingRef.current && isSettledAfterResume(d)) setResuming(false);
       })
       .catch((err: unknown) => setError(humanizeError(err)));
   };
 
   useEffect(() => {
     setError(null);
+    setResuming(false);
+    setLocalDecisions({});
     if (activeRunId) refreshDetail(activeRunId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId]);
@@ -165,27 +209,61 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminal]);
 
+  // Backstop while a resumed turn is in flight: the SSE terminal event is the
+  // fast path, but if that connection drops or misses it, the run must still
+  // converge to its real state without a manual reselect.
+  useEffect(() => {
+    if (!resuming || !activeRunId) return;
+    const poll = setInterval(() => {
+      refreshDetail(activeRunId);
+      reloadRuns();
+    }, 2500);
+    return () => clearInterval(poll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resuming, activeRunId]);
+
   useEffect(() => {
     onPendingCountChange(globalPending.filter((p) => !p.is_stale).length);
   }, [globalPending, onPendingCountChange]);
 
-  const actionableRunIds = new Set(globalPending.map((p) => p.run_id).filter((id): id is string => Boolean(id)));
 
   // Legacy pre-fix pending rows the one-shot startup cleanup already
   // cancelled (`status` present and not "pending") -- read-only, never
   // actionable, rendered as an inert "stale -- cancelled" note rather than
   // an editable card.
-  const legacyCancelled = detail?.pending.filter((p) => p.status && p.status !== "pending") ?? [];
-  const pending = detail?.pending.filter((p) => !p.is_stale && (!p.status || p.status === "pending")) ?? [];
+  const legacyCancelled = detail && !resuming ? legacyCancelledPending(detail.pending) : [];
+  const pending = detail && !resuming ? actionablePending(detail.pending) : [];
+  const shownStatus = detail ? effectiveStatus(detail.status, resuming) : "";
   const allDrafted = pending.length > 0 && pending.every((p) => drafts[p.id]);
   const draftedCount = pending.filter((p) => drafts[p.id]).length;
   const approvalAllowed = canApprove();
+  const transcript = useMemo(
+    () =>
+      detail
+        ? buildTranscript(detail.messages, shownStatus === "awaiting_input" ? pending : [], {
+            running: shownStatus === "running",
+            gatedTools: meta?.approval_gated_tools,
+          })
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [detail, meta, resuming],
+  );
 
   // Stick-to-bottom: follow new messages and streamed tokens, stop when the
   // user scrolls up, resume via "Jump to latest" or by scrolling back down.
   const { ref: scrollRef, following, jumpToLatest } = useStickToBottom<HTMLDivElement>(
     [detail, streamingText, pending.length, legacyCancelled.length],
     activeRunId,
+    // First load of a conversation: start with the latest prompt fully in view
+    // (pinning a tall thread to the bottom clipped it at the top edge), unless
+    // a decision is waiting -- then the decision wins and we pin to the bottom.
+    (el) => {
+      const prompts = el.querySelectorAll<HTMLElement>(".msg-user");
+      if (prompts.length === 0) return undefined;
+      if (el.querySelector(".batch-bar, .tcb.is-awaiting")) return null;
+      const last = prompts[prompts.length - 1];
+      return last.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
+    },
   );
 
   // The empty state reads top-down; only a real conversation pins to the bottom.
@@ -215,6 +293,7 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
     try {
       await sendCopilotFollowUp(activeRunId, prompt.trim());
       setPrompt("");
+      setResuming(true);
       setStreamEpoch((e) => e + 1);
       jumpToLatest();
     } catch (err) {
@@ -239,10 +318,16 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
     if (!activeRunId || !allDrafted || !canApprove()) return;
     setSubmitting(true);
     try {
-      await resolveCopilotRun(
-        activeRunId,
-        pending.map((p) => drafts[p.id] as CopilotResolution),
-      );
+      const resolutions = finalizeResolutions(pending.map((p) => p.id), drafts, notes);
+      await resolveCopilotRun(activeRunId, resolutions);
+      const actor = getCurrentUser();
+      const at = new Date().toISOString();
+      const decided: Record<string, { action: "approve" | "deny" | "answer"; actor: string; at: string }> = {};
+      pending.forEach((p, i) => {
+        decided[p.tool_name ?? p.kind] = { action: resolutions[i].decision, actor, at };
+      });
+      setLocalDecisions((prev) => ({ ...prev, ...decided }));
+      setResuming(true);
       setStreamEpoch((e) => e + 1);
       refreshDetail(activeRunId);
       reloadRuns();
@@ -270,16 +355,19 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
 
   const awaitingCount = globalPending.filter((p) => !p.is_stale).length;
   const activeSummary = runs.find((r) => r.id === activeRunId);
-  const isStaleRun = !!detail && detail.status === "awaiting_input" && !actionableRunIds.has(detail.run_id);
-  const working =
-    !!activeRunId && !terminal && !streamingText && (detail?.status === "running" || starting);
-  const canCancel = !!detail && (detail.status === "running" || (detail.status === "awaiting_input" && !isStaleRun));
+  // Stale comes ONLY from the server's legacy-cancelled marker on this run.
+  const isStaleRun = computeStaleRun(detail, resuming);
+  const staleRunIds = new Set(isStaleRun && detail ? [detail.run_id] : []);
+  const shownRuns = resuming ? runs.map((r) => (r.id === activeRunId ? { ...r, status: "running" } : r)) : runs;
+  const conversationTitle = activeSummary ? runTitle(activeSummary) : detail ? runTitle({ user_prompt: detail.messages.find((m) => m.role === "user")?.content ?? null, trigger: detail.trigger }) : "";
+  const working = !!activeRunId && !streamingText && ((!terminal && shownStatus === "running") || starting || (resuming && terminal));
+  const canCancel = !!detail && !resuming && (detail.status === "running" || (detail.status === "awaiting_input" && !isStaleRun));
 
   const statusChip = detail ? (
     <Chip
-      tone={isStaleRun ? "neutral" : detail.status === "awaiting_input" ? "warn" : detail.status === "completed" ? "good" : detail.status === "failed" ? "bad" : "info"}
+      tone={isStaleRun ? "neutral" : shownStatus === "awaiting_input" ? "warn" : shownStatus === "completed" ? "good" : shownStatus === "failed" ? "bad" : "info"}
     >
-      {isStaleRun ? "stale, cancelled" : detail.status.replace("_", " ")}
+      {isStaleRun ? "stale, cancelled" : shownStatus.replace("_", " ")}
     </Chip>
   ) : null;
 
@@ -322,13 +410,13 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
             </span>
           </div>
           <div className="cockpit-scroll">
-            <RunList runs={runs} activeRunId={activeRunId} onSelect={selectRun} actionableRunIds={actionableRunIds} />
+            <RunList runs={shownRuns} activeRunId={activeRunId} onSelect={selectRun} staleRunIds={staleRunIds} />
           </div>
         </aside>
 
         <section className="cockpit-col cockpit-main" aria-label="Conversation">
           <div className="cockpit-colhead">
-            <h2 className="panel-title trunc-line">{detail ? (activeSummary?.trigger ?? detail.trigger) : "New conversation"}</h2>
+            <h2 className="panel-title trunc-line" title={detail ? conversationTitle : undefined}>{detail ? conversationTitle : "New conversation"}</h2>
             <span className="row" style={{ flexWrap: "nowrap" }}>
               {statusChip}
               {canCancel && pending.length === 0 && (
@@ -343,12 +431,15 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
             <div className="chat-scroll" ref={scrollRef} aria-live="polite" aria-label="Conversation messages" tabIndex={0}>
               {!activeRunId && (
                 <div className="chat-empty">
+                  <span className="chat-empty-mark" aria-hidden="true">
+                    <BotIcon />
+                  </span>
                   <h2>What do you want to know?</h2>
                   <p className="muted">
                     The copilot can score components, read alerts, search the knowledge base and propose work. It asks you before it changes anything.
                   </p>
                   <div className="starters">
-                    {STARTERS.map((st) => (
+                    {STARTERS.map((st, si) => (
                       <button
                         key={st}
                         type="button"
@@ -358,6 +449,9 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
                           inputRef.current?.focus();
                         }}
                       >
+                        <span className="starter-ico" aria-hidden="true">
+                          {STARTER_ICONS[si % STARTER_ICONS.length]}
+                        </span>
                         {st}
                       </button>
                     ))}
@@ -367,30 +461,51 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
 
               {detail && (
                 <div className="conversation">
-                  {detail.messages.map((m, i) =>
-                    m.role === "tool_call" || m.role === "tool_result" ? (
-                      <ToolStep key={i} message={m} />
-                    ) : m.role === "user" ? (
-                      <div key={i} className="msg msg-user">
-                        <div className="bubble">
-                          <SafeMarkdown text={m.content ?? ""} />
+                  {transcript.map((t, ti) => {
+                    if (t.kind === "tool") {
+                      return (
+                        <ToolCallBlock
+                          key={t.key}
+                          item={t}
+                          drafted={!!(t.pending && drafts[t.pending.id])}
+                          localDecision={t.state === "awaiting" ? null : (localDecisions[t.toolName] ?? null)}
+                          onDraftChange={(id, res) => setDrafts((prev) => ({ ...prev, [id]: res }))}
+                          onNoteChange={(id, note) => setNotes((prev) => ({ ...prev, [id]: note }))}
+                          resolution={resolutionFor(t.call, t.toolName, detail.resolved)}
+                        />
+                      );
+                    }
+                    const m = t.message;
+                    if (m.role === "user") {
+                      return (
+                        <div key={t.index} className="msg msg-user">
+                          <div className="bubble">
+                            <SafeMarkdown text={m.content ?? ""} />
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div key={i} className="msg msg-agent">
+                      );
+                    }
+                    const prev = transcript[ti - 1];
+                    const startsGroup = !prev || (prev.kind === "message" && prev.message.role === "user");
+                    return (
+                      <div key={t.index} className={`msg msg-agent${startsGroup ? "" : " is-grouped"}`}>
+                        <AgentAvatar />
+                        {startsGroup && <span className="msg-author">Copilot</span>}
                         <SafeMarkdown text={m.content ?? ""} />
                       </div>
-                    ),
-                  )}
+                    );
+                  })}
 
                   {activeRunId && !terminal && streamingText && (
-                    <div className="msg msg-agent is-streaming">
+                    <div className="msg msg-agent is-streaming is-grouped">
+                      <AgentAvatar />
                       <SafeMarkdown text={streamingText} />
                     </div>
                   )}
 
                   {working && (
-                    <div className="msg msg-agent" role="status" aria-label="Copilot is working">
+                    <div className="msg msg-agent is-grouped" role="status" aria-label="Copilot is working">
+                      <AgentAvatar />
                       <span className="typing" aria-hidden="true">
                         <i />
                         <i />
@@ -401,28 +516,29 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
                   )}
 
                   {legacyCancelled.map((p) => (
-                    <div key={p.id} className="hitl hitl-stale">
-                      <div className="hitl-head">
-                        <Chip>stale, cancelled</Chip>
-                        <strong>{p.tool_name ?? "pending action"}</strong>
+                    <div key={p.id} className="tcb is-incomplete">
+                      <div className="tcb-head is-static">
+                        <span className="tcb-ico" aria-hidden="true">
+                          <CloseIcon />
+                        </span>
+                        <span className="tcb-title">
+                          <span className="tcb-name">{p.tool_name ?? "pending action"}</span>
+                        </span>
+                        <span className="tcb-status">Stale, cancelled</span>
                       </div>
-                      <p className="muted">
-                        {p.resolution_reason ?? "This pending card predates a fix and was auto-cancelled; it was never executed."}
-                      </p>
+                      <div className="tcb-body">
+                        <p className="muted">
+                          {p.resolution_reason ?? "This pending card predates a fix and was auto-cancelled; it was never executed."}
+                        </p>
+                      </div>
                     </div>
                   ))}
 
-                  {detail.status === "awaiting_input" &&
-                    pending.map((p) =>
-                      p.kind === "approval" ? (
-                        <ApprovalCard key={p.id} item={p} onDraftChange={(id, res) => setDrafts((prev) => ({ ...prev, [id]: res }))} />
-                      ) : (
-                        <OptionCard key={p.id} item={p} onDraftChange={(id, res) => setDrafts((prev) => ({ ...prev, [id]: res }))} />
-                      ),
-                    )}
-
                   {pending.length > 0 && (
-                    <div className="batch-bar">
+                    <div className="batch-bar" role="region" aria-label="Pending decisions">
+                      <span className={`batch-count${allDrafted ? " is-ready" : ""}`} aria-hidden="true">
+                        {draftedCount}/{pending.length}
+                      </span>
                       <p className="batch-summary">
                         {allDrafted
                           ? pending.length === 1
@@ -435,6 +551,7 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
                       <div className="row" style={{ flexWrap: "nowrap" }}>
                         <Button
                           variant="primary"
+                          size="sm"
                           loading={submitting}
                           disabled={!approvalAllowed || !allDrafted}
                           title={
@@ -448,7 +565,9 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
                         >
                           {submitting ? "Submitting…" : `Submit decision${pending.length > 1 ? "s" : ""}`}
                         </Button>
-                        <Button onClick={doCancel}>Cancel run</Button>
+                        <Button size="sm" variant="ghost" onClick={doCancel}>
+                          Cancel run
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -510,7 +629,7 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
               <dl className="kv is-compact">
                 <dt>status</dt>
                 <dd>
-                  <strong>{detail.status}</strong>
+                  <strong>{shownStatus}</strong>
                 </dd>
                 <dt>trigger</dt>
                 <dd>{detail.trigger}</dd>
@@ -533,15 +652,25 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
                 <h3 className="form-section-title" style={{ marginTop: 20 }}>
                   Tools ({meta.tools.length})
                 </h3>
-                <ul className="tool-list">
-                  {meta.tools.map((t) => (
-                    <li key={t}>
-                      <span className="mono">{t}</span>
-                      {meta.approval_gated_tools.includes(t) && <Chip tone="warn" plain>approval</Chip>}
-                      {meta.deferred_tools.includes(t) && <Chip plain>deferred</Chip>}
-                    </li>
-                  ))}
-                </ul>
+                {groupTools(meta).map((g) =>
+                  g.tools.length === 0 ? null : (
+                    <div key={g.title} className="tool-group">
+                      <p className="tool-group-title">
+                        {g.title}
+                        <span className="tool-group-count">{g.tools.length}</span>
+                      </p>
+                      <ul className="tool-list">
+                        {g.tools.map((t) => (
+                          <li key={t}>
+                            <span className="mono tool-list-name" title={t}>
+                              {t}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ),
+                )}
               </>
             )}
           </div>

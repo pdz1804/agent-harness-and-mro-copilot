@@ -9,7 +9,7 @@ import { DataTable, type Column } from "../components/ui/data-table";
 import { Button, Chip, PageHead, Panel, StatBar } from "../components/ui/primitives";
 import { RiskMeter, Segmented } from "../components/ui/widgets";
 import { EmptyState, Notice, ServiceStatusBanner } from "../components/ui/states";
-import { DownloadIcon, RefreshIcon } from "../components/ui/icons";
+import { ActivityIcon, AlertTriangleIcon, DownloadIcon, GaugeIcon, PlaneIcon, RefreshIcon, ShieldIcon, WrenchIcon } from "../components/ui/icons";
 import type { AircraftIndexRow, FleetRiskItem, FleetRiskResponse } from "../types";
 
 const FLEET_SIZE = 30;
@@ -202,10 +202,10 @@ function ComponentsView({ onAskCopilot }: { onAskCopilot: (prompt: string) => vo
       <StatBar
         label="Fleet summary"
         items={[
-          { label: "Components scored", value: data?.n_scored ?? "…", sub: "latest snapshot each" },
-          { label: "Over threshold", value: data ? alertCount : "…", sub: `in the top ${FLEET_SIZE}` },
-          { label: "Highest risk", value: top ? formatPct(top.risk_score, 1) : data ? "n/a" : "…", sub: <span className="mono">{top?.component_id ?? ""}</span> },
-          { label: "Alert threshold", value: data ? formatPct(data.threshold, 2) : "…", sub: data?.model_id },
+          { icon: <WrenchIcon />, label: "Components scored", value: data?.n_scored ?? "…", sub: "latest snapshot each" },
+          { icon: <AlertTriangleIcon />, label: "Over threshold", value: data ? alertCount : "…", sub: `in the top ${FLEET_SIZE}` },
+          { icon: <ActivityIcon />, label: "Highest risk", value: top ? formatPct(top.risk_score, 1) : data ? "n/a" : "…", sub: <span className="mono">{top?.component_id ?? ""}</span> },
+          { icon: <GaugeIcon />, label: "Alert threshold", value: data ? formatPct(data.threshold, 2) : "…", sub: data?.model_id },
         ]}
       />
 
@@ -331,10 +331,10 @@ function AircraftView() {
       <StatBar
         label="Aircraft summary"
         items={[
-          { label: "Aircraft", value: index.data ? summary.total : "…", sub: `${summary.scanned} scanned` },
-          { label: "Serviceable", value: index.data ? summary.serviceable : "…" },
-          { label: "Restricted / AOG", value: index.data ? `${summary.restricted} / ${summary.aog}` : "…" },
-          { label: "Open alerts", value: index.data ? summary.openAlerts : "…", sub: `${summary.openWorkOrders} open work orders` },
+          { icon: <PlaneIcon />, label: "Aircraft", value: index.data ? summary.total : "…", sub: `${summary.scanned} scanned` },
+          { icon: <ShieldIcon />, label: "Serviceable", value: index.data ? summary.serviceable : "…" },
+          { icon: <AlertTriangleIcon />, label: "Restricted / AOG", value: index.data ? `${summary.restricted} / ${summary.aog}` : "…" },
+          { icon: <ActivityIcon />, label: "Open alerts", value: index.data ? summary.openAlerts : "…", sub: `${summary.openWorkOrders} open work orders` },
         ]}
       />
       {index.error && <ServiceStatusBanner message={index.error} onRetry={index.reload} />}

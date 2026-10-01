@@ -115,9 +115,11 @@ def _summarize_history(run: dict) -> list[dict]:
             elif kind == "text":
                 out.append({"role": "assistant", "content": part.content})
             elif kind == "tool-call":
-                out.append({"role": "tool_call", "tool_name": part.tool_name, "args": part.args})
+                out.append({"role": "tool_call", "tool_name": part.tool_name, "args": part.args,
+                            "tool_call_id": part.tool_call_id})
             elif kind == "tool-return":
-                out.append({"role": "tool_result", "tool_name": part.tool_name, "content": part.content})
+                out.append({"role": "tool_result", "tool_name": part.tool_name, "content": part.content,
+                            "tool_call_id": part.tool_call_id})
     return out
 
 
@@ -205,7 +207,29 @@ def get_run(run_id: str, engine: Engine = Depends(get_engine)):
         "final_answer": run["final_answer"],
         "messages": _summarize_history(run),
         "pending": [_pending_view(p) for p in pending] + [_legacy_view(p) for p in legacy],
+        "resolved": _resolved_views(engine, run_id),
     }
+
+
+def _resolved_views(engine: Engine, run_id: str) -> list[dict]:
+    """Resolved pending items (decision, actor, time, note) so the UI can keep
+    "Approved by X" attribution for every gated tool after a reload."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(copilot_pending).where(
+                copilot_pending.c.run_id == run_id, copilot_pending.c.status == "resolved",
+            )
+        ).mappings().all()
+    out = []
+    for r in rows:
+        res = json.loads(r["resolution_json"]) if r["resolution_json"] else {}
+        out.append({
+            "id": r["id"], "tool_call_id": r["tool_call_id"], "kind": r["kind"],
+            "tool_name": r["tool_name"], "decision": res.get("decision"),
+            "note": res.get("answer_text"), "option_id": res.get("option_id"),
+            "resolved_by": r["resolved_by"], "resolved_at": r["resolved_at"],
+        })
+    return out
 
 
 @router.get("/runs/{run_id}/events")

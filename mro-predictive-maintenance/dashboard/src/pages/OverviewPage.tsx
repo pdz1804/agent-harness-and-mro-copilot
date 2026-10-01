@@ -7,6 +7,8 @@ import { DataTable, type Column } from "../components/ui/data-table";
 import { ButtonLink, Chip, PageHead, Panel, StatBar } from "../components/ui/primitives";
 import { RiskMeter } from "../components/ui/widgets";
 import { EmptyState, Notice } from "../components/ui/states";
+import { BellIcon, ClipboardIcon, GaugeIcon, LockIcon } from "../components/ui/icons";
+import { countSince, dailyCounts } from "../lib/series";
 import type { Alert, DashboardData, ModelResult } from "../types";
 
 const LANES: { role: string; goal: string; links: { label: string; to: string }[] }[] = [
@@ -68,6 +70,9 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
   const openWos = (live.data?.wos ?? []).filter((w) => w.status !== "closed");
   const outcomes = asLiveOutcomes(live.data?.perf.live_outcomes);
   const attention = openAlerts.filter((a) => a.status === "open").slice(0, 5);
+  const alertTimes = (live.data?.alerts ?? []).map((a) => a.opened_at);
+  const woTimes = (live.data?.wos ?? []).map((w) => w.created_at);
+  const newAlerts = countSince(alertTimes);
 
   const splitTotal = splits.train.rows + splits.val.rows + splits.test.rows;
   const parts = [
@@ -114,10 +119,27 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
       <StatBar
         label="Operations right now"
         items={[
-          { label: "Open alerts", value: live.loading ? "…" : openAlerts.length, sub: "not yet closed", href: hrefFor("ops/alerts") },
-          { label: "Awaiting approval", value: pendingCount, sub: "copilot actions needing a human", href: hrefFor("ops/copilot") },
-          { label: "Open work orders", value: live.loading ? "…" : openWos.length, sub: "waiting for an outcome", href: hrefFor("ops/work-orders") },
           {
+            label: "Open alerts",
+            icon: <BellIcon />,
+            value: live.loading ? "…" : openAlerts.length,
+            sub: "not yet closed",
+            href: hrefFor("ops/alerts"),
+            trend: live.data ? dailyCounts(alertTimes) : undefined,
+            trendTone: "bad",
+            delta: live.data ? { text: `+${newAlerts} in 24h`, tone: newAlerts > 0 ? "warn" : "neutral" } : undefined,
+          },
+          { label: "Awaiting approval", icon: <LockIcon />, value: pendingCount, sub: "copilot actions needing a human", href: hrefFor("ops/copilot") },
+          {
+            label: "Open work orders",
+            icon: <ClipboardIcon />,
+            value: live.loading ? "…" : openWos.length,
+            sub: "waiting for an outcome",
+            href: hrefFor("ops/work-orders"),
+            trend: live.data ? dailyCounts(woTimes) : undefined,
+          },
+          {
+            icon: <GaugeIcon />,
             label: "Live precision",
             value: outcomes?.live_precision != null ? formatPct(outcomes.live_precision, 0) : "n/a",
             sub: outcomes ? `${outcomes.closed_with_outcome} closed with outcome` : "from closed work orders",

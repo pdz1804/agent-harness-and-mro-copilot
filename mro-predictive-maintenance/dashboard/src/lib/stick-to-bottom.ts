@@ -68,6 +68,16 @@ export class StickToBottomController {
     this.pin();
   }
 
+  /** Initial placement of a freshly loaded conversation: scroll to `top`
+   * (clamped) and follow only if that is the bottom. Used to show the
+   * latest prompt from its first line instead of clipping it at the top edge. */
+  anchorTo(top: number): void {
+    const max = Math.max(0, this.el.scrollHeight - this.el.clientHeight);
+    this.el.scrollTop = Math.min(max, Math.max(0, top));
+    this.lastScrollTop = this.el.scrollTop;
+    this.set(isNearBottom(this.el));
+  }
+
   /** "Jump to latest" pill: resume following and pin to the bottom. */
   jumpToLatest(): void {
     this.set(true);

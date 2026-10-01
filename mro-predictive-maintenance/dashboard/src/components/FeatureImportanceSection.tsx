@@ -11,8 +11,8 @@ interface FeatureImportanceSectionProps {
 const TOP_N = 10;
 
 const SERIES_COLOR: Record<string, string> = {
-  logistic_regression: "#7d8b98",
-  hist_gradient_boosting: "#0b6b8a",
+  logistic_regression: "#98a1b3",
+  hist_gradient_boosting: "#3451d1",
 };
 
 interface TooltipPayloadItem {
@@ -49,17 +49,17 @@ function ImportanceChart({ rows, color }: { rows: FeatureImportanceRow[]; color:
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={top} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
-        <CartesianGrid stroke="#dde2e8" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v: number) => v.toFixed(2)} stroke="#dde2e8" />
+        <CartesianGrid stroke="#eceef2" strokeDasharray="3 4" horizontal={false} />
+        <XAxis type="number" tickFormatter={(v: number) => v.toFixed(2)} stroke="transparent" tick={{ fontSize: 11, fill: "#5c6576" }} />
         <YAxis
           dataKey="display"
           type="category"
           width={168}
-          tick={{ fontSize: 11 }}
-          stroke="#dde2e8"
+          tick={{ fontSize: 11, fill: "#384152" }}
+          stroke="transparent"
         />
-        <Tooltip content={<ImportanceTooltip />} cursor={{ fill: "rgba(11,107,138,0.06)" }} />
-        <Bar dataKey="importance_mean" radius={[0, 3, 3, 0]} isAnimationActive={false}>
+        <Tooltip content={<ImportanceTooltip />} cursor={{ fill: "rgba(52, 81, 209, 0.06)" }} />
+        <Bar dataKey="importance_mean" radius={[0, 6, 6, 0]} barSize={14} isAnimationActive={false}>
           {top.map((row) => (
             <Cell key={row.feature} fill={color} fillOpacity={row.importance_mean < 0 ? 0.35 : 1} />
           ))}
@@ -77,7 +77,7 @@ export function FeatureImportanceSection({ data }: FeatureImportanceSectionProps
       </Notice>
       <div className="grid-2">
         {data.models.map((model) => {
-          const color = SERIES_COLOR[model.id] ?? "#0b6b8a";
+          const color = SERIES_COLOR[model.id] ?? "#3451d1";
           return (
             <Panel
               key={model.id}

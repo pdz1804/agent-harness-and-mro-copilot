@@ -1,185 +1,164 @@
 ---
 name: MRO Predictive Maintenance
-description: Maintenance-control instrument panel. Ink chrome, paper-grey workspace, one deep-teal accent, risk drawn against its alert threshold.
+description: "Flight Deck Clarity": a calm, light, layered ops console. Cool tinted canvas, white cards with soft multi-layer elevation and alpha hairlines, one cobalt accent, risk always drawn against its threshold.
 colors:
-  chrome: "#0E1A24"
-  chrome-raised: "#1B2B38"
-  chrome-text: "#E8EEF2"
-  chrome-muted: "#A3B3BF"
-  canvas: "#F3F5F7"
+  canvas: "#F6F7F9"
   surface: "#FFFFFF"
-  surface-subtle: "#F7F9FA"
-  sunken: "#ECEFF2"
-  border: "#DDE2E8"
-  border-strong: "#C5CDD6"
-  text: "#101820"
-  text-2: "#3A4753"
-  muted: "#5A6772"
-  accent: "#0B6B8A"
-  accent-hover: "#095872"
-  accent-press: "#074A60"
-  accent-tint: "#E4F1F5"
-  accent-border: "#A9D2DE"
-  good: "#17703F"
-  good-tint: "#E5F4EB"
-  warn: "#8A5200"
-  warn-tint: "#FDF2DC"
-  bad: "#B42318"
-  bad-tint: "#FDECEA"
-  neutral: "#46535F"
-  neutral-tint: "#ECEFF2"
-  series-baseline: "#7D8B98"
+  surface-subtle: "#FAFBFC"
+  sunken: "#F0F2F5"
+  border: "rgba(15,23,42,0.08)"
+  border-strong: "rgba(15,23,42,0.14)"
+  text: "#0B1220"
+  text-2: "#384152"
+  muted: "#5C6576"
+  accent: "#3451D1"
+  accent-hover: "#2C45B9"
+  accent-press: "#243A9E"
+  accent-tint: "#EEF1FD"
+  accent-border: "#C8D1F6"
+  accent-ink: "#2338A6"
+  good: "#0F7A4A"
+  good-tint: "#EAF7F0"
+  warn: "#985800"
+  warn-tint: "#FFF4DE"
+  bad: "#C4291F"
+  bad-tint: "#FEEFED"
+  neutral: "#4A5466"
+  series-accent: "#3451D1"
+  series-baseline: "#98A1B3"
+  series-warn: "#D48A06"
+  series-bad: "#DC4436"
 typography:
-  body:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+  display:
+    fontFamily: "Geist Variable, Inter Variable, system-ui, sans-serif"
+    weights: [600, 650]
+    tracking: "-0.022em"
+  ui:
+    fontFamily: "Inter Variable, system-ui, sans-serif"
     fontSize: "0.8125rem"
-    fontWeight: 400
-    lineHeight: 1.45
-  page-title:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
-    fontSize: "1.25rem"
-    fontWeight: 600
-    lineHeight: 1.25
+    weights: [400, 500, 600]
+    lineHeight: 1.5
   data:
-    fontFamily: "JetBrains Mono Variable, ui-monospace, monospace"
+    fontFamily: "Geist Mono Variable, ui-monospace, monospace"
     fontSize: "0.75rem"
-    fontWeight: 500
-    lineHeight: 1.4
+    weight: 500
 rounded:
-  sm: "4px"
-  md: "6px"
-spacing:
-  1: "4px"
-  2: "8px"
-  3: "12px"
-  4: "16px"
-  6: "24px"
-  8: "32px"
-components:
-  button-primary:
-    backgroundColor: "{colors.accent}"
-    textColor: "#FFFFFF"
-    rounded: "{rounded.md}"
-    height: "36px"
-    padding: "0 14px"
-  button-secondary:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.md}"
-    height: "36px"
-  chip:
-    rounded: "{rounded.sm}"
-    height: "22px"
+  xs: "4px"
+  sm: "6px"
+  md: "8px"
+  lg: "12px"
+  full: "999px"
+spacing: [4, 8, 12, 16, 20, 24, 32, 40, 48]
+elevation:
+  card: "0 0 0 1px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04), 0 2px 8px -2px rgba(15,23,42,.05)"
+  raised: "0 0 0 1px rgba(15,23,42,.07), 0 2px 4px rgba(15,23,42,.05), 0 8px 20px -6px rgba(15,23,42,.10)"
+  float: "0 0 0 1px rgba(15,23,42,.08), 0 8px 16px -4px rgba(15,23,42,.10), 0 24px 48px -12px rgba(15,23,42,.18)"
+motion:
+  fast: "140ms"
+  base: "200ms"
+  ease: "cubic-bezier(0.16, 1, 0.3, 1)"
 ---
 
 # Design System: MRO Predictive Maintenance
 
-## Overview
+## North Star: "Flight Deck Clarity"
 
-**Creative North Star: "The Maintenance Control Desk"**
+A modern glass cockpit stays calm until something matters. The console is light, quiet and layered: a cool tinted canvas, white cards on soft multi-layer shadows with alpha hairlines, and one cobalt accent for action and selection. Colour is spent on a single idea, *risk against its alert threshold*, and it's drawn the same way everywhere: a rounded bar with a threshold notch, or a gradient line over a shaded threshold band.
 
-A reliability engineer at a line-maintenance control desk works from a dark instrument header over a bright, paper-grey workspace. The header is solid ink and never translucent: it frames the work and nothing bleeds through it. Below it, flat bordered panels carry dense, right-aligned, tabular numbers. The single teal accent marks action and selection and nothing else. Colour is spent on one idea: *risk against its alert threshold*, always drawn the same way (a bar with a threshold notch, a dashed line with a shaded band above it).
+Operate register. The bar is Linear / Vercel / Stripe: crisp type with real weight contrast, generous but disciplined density, purposeful motion, nothing default-looking. The brand lives in precise details: Geist Mono tail numbers, the threshold notch, honest labels ("scripted", "no alert").
 
-Operate register: scanability, consistency and native expectations outrank expression. The brand is in the details: mono tail-number IDs, the threshold notch, honest labels ("no alert", "scripted", "fragile").
+## Replaced (anti-reference)
 
-**Key Characteristics:**
-- Solid ink chrome, grey canvas, white flat panels with 1px borders. No nested cards, no resting shadows.
-- One accent (deep teal). Semantic red / amber / green only for status, always with an icon and a word.
-- Inter for everything, JetBrains Mono for IDs and measurements, tabular numerals on every number.
-- 13px body, 32px dense rows, 4px spacing grid.
-- One scroll container per page (`#app-main`); chrome never scrolls.
+The previous "Maintenance Control Desk" look is retired. That look had an ink top bar, grey flat boxes, 1px solid borders on every edge, rectangular bordered chips and stock Recharts. Do not reintroduce dark chrome bars, solid grey card borders, heavy outlined chips, flat full-width rule tables or unicode glyph arrows.
 
-## Colors
+## Colour
 
-Cool, slightly teal-tinted neutrals so the accent feels native, not pasted on.
+Cool slate neutrals with a faint blue cast, so the cobalt reads as native.
 
-### Primary
-- **Instrument Teal** (#0B6B8A): primary buttons, current selection, links, focus ring, the deployed-model series in charts. Hover #095872, press #074A60.
+- **Cobalt** `#3451D1` (6.6:1 on white): primary buttons, current selection, links, focus ring, the deployed-model series. Hover `#2C45B9`, press `#243A9E`, tint `#EEF1FD`, ink `#2338A6`.
+- **Canvas** `#F6F7F9`. **Surface** white. **Subtle** `#FAFBFC` for table headers and hover. **Sunken** `#F0F2F5` for tracks, skeletons and the segmented trough.
+- **Hairlines** are alpha: `rgba(15,23,42,.08)` for dividers, `.14` for inputs. They tint correctly on any surface.
+- **Text** `#0B1220`, **Text-2** `#384152`, **Muted** `#5C6576` (5.4:1 on canvas).
+- **Semantic** (status only, always icon + word): good `#0F7A4A`/`#EAF7F0`, warn `#985800`/`#FFF4DE`, bad `#C4291F`/`#FEEFED`, neutral `#4A5466`/`#F0F2F5`. Chips are borderless soft tints with a 1px inset alpha ring in their own hue.
+- **Charts**: cobalt `#3451D1` (primary), slate `#98A1B3` (baseline / comparison), amber `#D48A06` (warn), coral-red `#DC4436` (risk). Lines get a 2px stroke and a vertical gradient fill that fades from 18% to 0%. Bands sit at 6–8% alpha.
 
-### Neutral
-- **Ink Chrome** (#0E1A24): top bar only. Text on it #E8EEF2, secondary #A3B3BF.
-- **Paper Canvas** (#F3F5F7): the page behind panels. **Panel White** (#FFFFFF): panels, tables, inputs. **Subtle** (#F7F9FA): table hover, header rows. **Sunken** (#ECEFF2): tracks, skeletons.
-- **Border** (#DDE2E8) for dividers, **Border Strong** (#C5CDD6) for inputs and emphasis.
-- **Text** (#101820), **Text-2** (#3A4753), **Muted** (#5A6772, 5.3:1 on canvas).
-
-### Semantic (status only)
-- Good #17703F on #E5F4EB. Warn #8A5200 on #FDF2DC. Bad #B42318 on #FDECEA. Neutral #46535F on #ECEFF2. Info reuses the accent tint.
-
-### Named Rules
-**The One Voice Rule.** Teal marks the next action or the current selection. It is never decoration and never a status.
-**The Threshold Rule.** Any risk number is drawn against its alert threshold. Below 60% of threshold the bar is slate (quiet), 60-100% amber, at or above red. Low risk is not green: 300 green rows would hide the 15 that matter.
-**The Not-Colour-Alone Rule.** Every status chip carries an icon shape (check, triangle, octagon, info, ring) and a word.
+Rules:
+- **One Voice**: cobalt marks the next action or the current selection, never decoration.
+- **Threshold**: below 60% of threshold the bar is slate, 60–100% amber, at or above red. Low risk is not green.
+- **Not Colour Alone**: every status carries an icon shape and a word.
 
 ## Typography
 
-**Family:** Inter Variable (self-hosted), with system fallbacks. **Data:** JetBrains Mono Variable for IDs, thresholds, timestamps in tables.
-
-**Character:** a single well-tuned sans carries headings, labels, body and data; mono is reserved for things an engineer might copy.
-
-### Hierarchy (fixed rem scale, ratio about 1.15)
-- **Page title** (600, 20px, 1.25): one h1 per page.
-- **Panel title** (600, 14px, 1.3): panel headers.
-- **Body** (400, 13px, 1.45): tables, forms, prose. Prose capped at 65ch.
-- **Label** (500, 12px): column headers, field labels, chips. Column headers are sentence case, not uppercase tracked.
-- **Caption** (400, 11-12px, muted): provenance, units, helper text.
-- **Stat** (600, 20px, tabular): the number in a stat strip. Display 24px only on Overview.
-
-### Named Rules
-**The Tabular Rule.** `font-variant-numeric: tabular-nums` on every number so columns align and values do not jitter while polling.
-**The No-Eyebrow Rule.** No kicker labels above headings. The heading carries itself.
+- **Display: Geist** (600–650, tracking −0.022em): page titles 24px, KPI values 26px, empty-state titles. Self-hosted via `@fontsource-variable/geist`.
+- **UI: Inter** (400/500/600, `cv11` `ss01` `ss03`): everything else. 13px body, 14px panel titles (600), 12px labels (500), 11px captions.
+- **Data: Geist Mono** (500): IDs, tail numbers, timestamps, thresholds, code. Tabular numerals on every number (`tnum`).
+- **Scale** (fixed rem, ~1.15): 11 / 12 / 13 / 14 / 16 / 20 / 24 / 26. Weight contrast does the hierarchy work: 650 display against 400 body.
+- No eyebrows or kickers. Column headers are sentence case, 12px/500 muted.
 
 ## Layout
 
-CSS grid shell: top bar (48px, ink) / sub-nav (40px, white, only when the area has more than one page) / `#app-main` (the only scroller) / bottom tab bar (phones). Pages are a max-1280px column with 24px padding (16px on phones). Spacing steps 4, 8, 12, 16, 24, 32, 48. Related things are 8-12px apart, sections 24px.
+The shell is a grid with four rows:
+- top bar (56px, white, hairline);
+- sub-nav row (44px, white, segmented tabs with a sliding indicator);
+- `#app-main`, the only scroller;
+- bottom tab bar (phones only).
 
-Structure is responsive, not fluid: tables hide low-priority columns below 768px rather than scrolling sideways; side panels become bottom sheets under 1100px; the primary nav becomes a bottom tab bar under 768px. Table headers are sticky to the top of `#app-main`.
+The page column is max 1280px, with 28px top padding and 24px sides (16px on phones). Section gap is 20px; spacing inside cards is 12–16px.
 
-## Elevation & Depth
+Responsive behaviour is structural: tables hide low-priority columns below 768px, side panels become bottom sheets under 1100px, and the primary nav becomes a bottom tab bar under 768px.
 
-Flat by default. Depth comes from the border and from tonal layering (white panels on grey canvas). A shadow exists only for things that float above the page: the right sheet and bottom sheet (`0 12px 32px rgba(16,24,32,.16)`) and popovers. No glass, no blur.
+## Elevation & Shape
 
-## Shapes
-
-6px radius on buttons, inputs, panels and sheets; 4px on chips, tags and table-adjacent controls. Chips are rectangular, not pills, so they read as instrument labels rather than SaaS badges. Borders are always 1px.
+- **Cards** (panels, KPI cards, cockpit columns): white, 12px radius, `elevation.card`. No solid border; the first shadow layer *is* the hairline.
+- **Interactive cards** (KPI links, starters, choices, lanes) lift to `elevation.raised` and translateY(−1px) on hover.
+- **Floating** surfaces (sheets, palette, tooltips, jump pill) use `elevation.float`.
+- **Radii**: controls 8px; chips and tags 6px; pills (health, count badges) full.
 
 ## Components
 
-### Buttons
-Variants: **primary** (teal, one per view), **secondary** (white + border), **ghost** (text only), **danger** (red text on white, solid on confirm), **link**. Sizes: sm 28px, md 36px, lg 40px (touch). Icon-only buttons carry `aria-label` and a tooltip. States: hover darkens one step, `:focus-visible` shows a 2px teal ring with 2px offset, active presses one step, disabled drops to 45% with `not-allowed`, loading swaps the label for "Working…" and keeps width.
+- **Buttons**: primary is cobalt with a 1px inner top highlight and a soft drop; secondary is white with an alpha ring and an xs shadow; ghost is text-only; plus danger. Sizes: sm 30px, md 36px, lg 40px. Focus: a 3px cobalt ring at 30% alpha plus 1px solid.
+- **Chips**: 22px, 6px radius, soft tint, inset alpha ring, 12px lucide icon, 12px/500 text.
+- **KPI card**:
+  - label: 12px muted, with an icon;
+  - value: Geist 26px, counts up on load;
+  - sub-line or delta chip;
+  - optional sparkline, only from a real series (never a fabricated one).
+- **Data table**: 40px rows (44px on phones), sticky subtle header, alpha row dividers, hover tint, link cursor on rows, mono IDs in cobalt-ink.
+- **Risk bar** (signature): 6px rounded track, rounded fill, 2px ink notch at the threshold, tabular value.
+- **Navigation**:
+  - brand mark: an ink square with the lucide plane;
+  - area tabs: quiet pills;
+  - sub-nav: segmented tabs with a sliding white indicator;
+  - command button: "Jump to…" (Ctrl/⌘ K) opens a page palette;
+  - health pill with a live dot, then the identity select;
+  - approvals pill: turns amber when something is pending.
+- **Copilot**:
+  - agent messages carry a small avatar, and consecutive turns are grouped;
+  - user messages are right-aligned cobalt-tint bubbles;
+  - every tool call is ONE inline block (`ToolCallBlock`) whose state carries the lifecycle: running (spinner, cobalt ring) → needs approval / needs your answer (amber, expanded in place with the typed fields and Approve/Deny, or the options) → approved / denied → succeeded / failed. Approval is never a separate pop-up card;
+  - the block body shows Arguments and Result once the call has finished;
+  - pending decisions are summarised in a slim sticky footer (drafted/total count, summary, Submit, Cancel run), not in a card;
+  - the composer is a single rounded field with an inline send button.
+- **States**:
+  - loading: skeletons shimmer, shaped like the content they replace;
+  - empty: a tinted icon tile, a title and a next step;
+  - error: a designed notice with retry.
 
-### Chips
-22px, 4px radius, 1px border, tinted background, leading 12px icon, 12px/500 text. Tones good / warn / bad / info / neutral.
+## Motion
 
-### Panels
-White, 1px border, 6px radius, no shadow. Header row (title 14/600, optional sub, actions) with a bottom divider. Never nest a panel inside a panel; use dividers and spacing.
+Durations are 140–200ms on `cubic-bezier(.16,1,.3,1)`, animating transform and opacity (plus shadow on hover lift). The moments:
+- the tab indicator slides;
+- chevrons rotate;
+- KPI numbers tick up once on load (500ms);
+- skeletons shimmer;
+- sheets slide in.
 
-### Data table
-32px dense rows, sticky header, 1px row dividers, right-aligned tabular numbers, `aria-sort` on sortable headers, whole-row click to the detail page (the ID cell is the real link for keyboard and middle-click), hover tint, truncation with `title`, skeleton / empty / error states in place.
+Under `prefers-reduced-motion` everything becomes instant, and numbers render their final value immediately.
 
-### Stat strip
-One bordered bar split into cells by dividers. Label 12px muted, value 20px/600 tabular, sub 12px muted. It replaces rows of separate KPI cards.
+## Do / Don't
 
-### Risk bar (signature)
-6px track, fill coloured by the Threshold Rule, a 2px ink notch at the alert threshold, value printed to the right. Used in every table and detail page.
-
-### Navigation
-Top bar: brand, four areas as text tabs with a 2px accent underline, then service health, identity picker, approvals pill. Sub-nav: underline tabs with count badges. Phones: bottom tab bar with icon + label; sub-nav scrolls sideways.
-
-### Sheet
-Right-hand dialog (bottom on phones). Scrim and Esc close it, focus returns, `overscroll-behavior: contain`, the body scrolls inside it.
-
-## Do's and Don'ts
-
-### Do:
-- **Do** draw every risk value next to its threshold and print the number.
-- **Do** give every state (loading, empty, error, permission) a designed treatment with a next step.
-- **Do** keep one scroll container per page and the chrome opaque.
-- **Do** use `transform` and `opacity` for motion, 120-200ms ease-out, and drop it under `prefers-reduced-motion`.
-- **Do** write labels honestly: "scripted", "no alert", "fragile threshold".
-
-### Don't:
-- **Don't** use gradients, glass, blur, coloured side-stripes, hero-metric cards or eyebrow kickers.
-- **Don't** nest cards or give resting panels a shadow.
-- **Don't** rely on colour alone to carry meaning.
-- **Don't** use `transition: all`, and don't animate layout properties.
-- **Don't** put a modal where an inline card or a sheet works.
+- Do draw every risk value against its threshold and print the number.
+- Do give loading, empty, error and permission states a designed treatment.
+- Do keep the chrome opaque and one scroll container per page.
+- Don't use gradient text, glass, coloured side-stripes thicker than 2px, eyebrows, nested cards, or `transition: all`.
+- Don't use emoji or unicode glyphs as icons. Use lucide only, at 1.75 stroke.

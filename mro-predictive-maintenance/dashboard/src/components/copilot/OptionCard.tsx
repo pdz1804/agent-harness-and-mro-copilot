@@ -1,14 +1,13 @@
 import { useState } from "react";
 import type { CopilotPendingItem } from "../../types";
 import type { CopilotResolution } from "../../lib/api";
-import { Chip } from "../ui/primitives";
 
 interface OptionCardProps {
   item: CopilotPendingItem;
   onDraftChange: (pendingId: string, resolution: CopilotResolution | null) => void;
 }
 
-/** Option card (ask_user): question, option buttons (radio-group semantics,
+/** Option form (ask_user), rendered inside its tool-call block: question, option buttons (radio-group semantics,
  * keyboard accessible), and an "Other..." free-text fallback. */
 export function OptionCard({ item, onDraftChange }: OptionCardProps) {
   const question = item.question;
@@ -34,10 +33,7 @@ export function OptionCard({ item, onDraftChange }: OptionCardProps) {
   };
 
   return (
-    <div className="hitl hitl-option">
-      <div className="hitl-head">
-        <Chip tone="info">Copilot needs clarification</Chip>
-      </div>
+    <div className="tcb-form">
       <p className="hitl-question">{question?.question}</p>
 
       <div className="stack" style={{ gap: 6 }} role="radiogroup" aria-label={question?.question}>

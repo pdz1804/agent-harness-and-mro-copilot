@@ -3,61 +3,60 @@
    Load order: tokens.css -> components.css -> shell.css -> features.css
    ========================================================================== */
 
+/* "Flight Deck Clarity": light, layered, one cobalt accent. See DESIGN.md. */
 :root {
   color-scheme: light;
 
-  /* chrome (top bar only) */
-  --chrome: #0e1a24;
-  --chrome-raised: #1b2b38;
-  --chrome-text: #e8eef2;
-  --chrome-muted: #a3b3bf;
-  --chrome-line: #2a3d4c;
-
-  /* surfaces */
-  --canvas: #f3f5f7;
+  /* surfaces: cool tinted canvas, white cards, alpha hairlines */
+  --canvas: #f6f7f9;
   --surface: #ffffff;
-  --surface-subtle: #f7f9fa;
-  --sunken: #ecf0f3;
-  --border: #dde2e8;
-  --border-strong: #c5cdd6;
+  --surface-subtle: #fafbfc;
+  --sunken: #f0f2f5;
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.14);
+  --border-solid: #e6e9ee;
 
   /* text (4.5:1 or better on surface and canvas) */
-  --text: #101820;
-  --text-2: #3a4753;
-  --muted: #5a6772;
+  --text: #0b1220;
+  --text-2: #384152;
+  --muted: #5c6576;
+  --faint: #8a93a3;
 
-  /* the one accent */
-  --accent: #0b6b8a;
-  --accent-hover: #095872;
-  --accent-press: #074a60;
-  --accent-tint: #e4f1f5;
-  --accent-border: #a9d2de;
-  --accent-ink: #07495e;
-  --focus: #0b6b8a;
+  /* the one accent: cobalt */
+  --accent: #3451d1;
+  --accent-hover: #2c45b9;
+  --accent-press: #243a9e;
+  --accent-tint: #eef1fd;
+  --accent-tint-2: #e0e6fb;
+  --accent-border: #c8d1f6;
+  --accent-ink: #2338a6;
+  --focus: #3451d1;
+  --focus-ring: 0 0 0 1px #3451d1, 0 0 0 4px rgba(52, 81, 209, 0.22);
 
   /* status (always paired with an icon and a word) */
-  --good: #17703f;
-  --good-tint: #e5f4eb;
-  --good-border: #a8d5ba;
-  --warn: #8a5200;
-  --warn-tint: #fdf2dc;
-  --warn-border: #e9cf94;
-  --bad: #b42318;
-  --bad-tint: #fdecea;
-  --bad-border: #f1b4ad;
-  --neutral: #46535f;
-  --neutral-tint: #ecf0f3;
-  --neutral-border: #c5cdd6;
+  --good: #0f7a4a;
+  --good-tint: #eaf7f0;
+  --good-border: rgba(15, 122, 74, 0.22);
+  --warn: #985800;
+  --warn-tint: #fff4de;
+  --warn-border: rgba(212, 138, 6, 0.32);
+  --bad: #c4291f;
+  --bad-tint: #feefed;
+  --bad-border: rgba(196, 41, 31, 0.22);
+  --neutral: #4a5466;
+  --neutral-tint: #f0f2f5;
+  --neutral-border: rgba(15, 23, 42, 0.1);
 
   /* charts */
-  --series-accent: #0b6b8a;
-  --series-baseline: #7d8b98;
-  --series-warn: #b8770a;
-  --series-bad: #b42318;
+  --series-accent: #3451d1;
+  --series-baseline: #98a1b3;
+  --series-warn: #d48a06;
+  --series-bad: #dc4436;
 
-  /* type: fixed rem scale, ratio about 1.15 */
+  /* type: Geist display, Inter UI, Geist Mono data. Fixed rem scale ~1.15 */
   --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-display: "Geist Variable", "Inter Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
   --fs-2xs: 0.6875rem; /* 11 */
   --fs-xs: 0.75rem; /* 12 */
   --fs-sm: 0.8125rem; /* 13 body */
@@ -65,6 +64,7 @@
   --fs-lg: 1rem; /* 16 */
   --fs-xl: 1.25rem; /* 20 */
   --fs-2xl: 1.5rem; /* 24 */
+  --fs-kpi: 1.625rem; /* 26 */
 
   /* spacing: 4px grid */
   --s-1: 4px;
@@ -73,32 +73,39 @@
   --s-4: 16px;
   --s-5: 20px;
   --s-6: 24px;
+  --s-7: 28px;
   --s-8: 32px;
   --s-10: 40px;
   --s-12: 48px;
 
   /* shape */
-  --r-sm: 4px;
-  --r-md: 6px;
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-full: 999px;
 
   /* control heights */
-  --h-sm: 28px;
+  --h-sm: 30px;
   --h-md: 36px;
   --h-lg: 40px;
-  --row-h: 32px;
+  --row-h: 40px;
 
   /* layout */
-  --topbar-h: 48px;
-  --subnav-h: 40px;
-  --tabbar-h: 56px;
+  --topbar-h: 56px;
+  --subnav-h: 44px;
+  --tabbar-h: 60px;
   --page-max: 1280px;
 
-  /* depth: only floating layers */
-  --shadow-float: 0 12px 32px rgba(16, 24, 32, 0.16), 0 1px 3px rgba(16, 24, 32, 0.1);
+  /* depth: soft multi-layer; the first layer is the hairline */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-card: 0 0 0 1px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px -2px rgba(15, 23, 42, 0.05);
+  --shadow-raised: 0 0 0 1px rgba(15, 23, 42, 0.07), 0 2px 4px rgba(15, 23, 42, 0.05), 0 10px 24px -8px rgba(15, 23, 42, 0.12);
+  --shadow-float: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 8px 16px -4px rgba(15, 23, 42, 0.1), 0 24px 48px -12px rgba(15, 23, 42, 0.2);
 
   /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --dur-1: 120ms;
+  --dur-1: 140ms;
   --dur-2: 200ms;
 }
 
@@ -125,11 +132,11 @@ body {
   color: var(--text);
   font-family: var(--font);
   font-size: var(--fs-sm);
-  line-height: 1.45;
-  font-feature-settings: "cv11", "ss03";
+  line-height: 1.5;
+  font-feature-settings: "cv11", "ss01", "ss03";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  -webkit-tap-highlight-color: rgba(11, 107, 138, 0.15);
+  -webkit-tap-highlight-color: rgba(52, 81, 209, 0.12);
 }
 
 h1,
@@ -157,6 +164,10 @@ h2,
 h3 {
   text-wrap: balance;
 }
+.display {
+  font-family: var(--font-display);
+  letter-spacing: -0.022em;
+}
 
 p {
   text-wrap: pretty;
@@ -178,11 +189,13 @@ code,
   font-family: var(--font-mono);
   font-size: 0.92em;
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "zero";
 }
 code {
   background: var(--sunken);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-xs);
   padding: 1px 5px;
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 button,
@@ -204,6 +217,7 @@ table {
 .num,
 .tabular {
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 .muted {
   color: var(--muted);
@@ -240,7 +254,6 @@ textarea {
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-  border-radius: var(--r-sm);
 }
 :focus:not(:focus-visible) {
   outline: none;
@@ -260,7 +273,7 @@ textarea {
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9aa6b2;
+  background: rgba(15, 23, 42, 0.28);
   background-clip: content-box;
   border: 2px solid transparent;
 }
@@ -268,11 +281,11 @@ textarea {
 .skip-link {
   position: absolute;
   left: var(--s-3);
-  top: -48px;
+  top: -96px;
   z-index: 100;
   background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-float);
   border-radius: var(--r-md);
   padding: var(--s-2) var(--s-3);
   transition: top var(--dur-1) var(--ease-out);

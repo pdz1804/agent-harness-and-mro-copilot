@@ -161,3 +161,18 @@ def test_sse_reconnect_with_last_event_id_replays_only_missed_events(client, mon
 
     wos = client.get("/ops/work-orders").json()
     assert any(w["component_id"] == row["component_id"] and w["approved_by"] == "lead.engineer" for w in wos)
+
+
+def test_sse_tokens_reassemble_full_final_answer_including_first_chunk(client):
+    """The first text chunk of a streamed model response arrives in
+    pydantic-ai's ``PartStartEvent``, not a ``PartDeltaEvent``; dropping it
+    lost the answer's first word ("have confirmed..." for "I have confirmed...")."""
+    resp = client.post("/copilot/runs", json={"prompt": "show me the top risk components"})
+    run_id = resp.json()["run_id"]
+    with client.stream("GET", f"/copilot/runs/{run_id}/events") as stream:
+        events = _read_sse_events(stream)
+    import json as _json
+    streamed = "".join(_json.loads(e["data"])["text"] for e in events if e["event"] == "token")
+    final = client.get(f"/copilot/runs/{run_id}").json()["final_answer"]
+    assert final
+    assert streamed == final

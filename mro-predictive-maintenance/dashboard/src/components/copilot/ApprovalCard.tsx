@@ -4,9 +4,10 @@ import type { CopilotResolution } from "../../lib/api";
 import { IDENTITY_CHANGE_EVENT, canApprove, getCurrentUser } from "../../lib/identity";
 import { Button, Chip } from "../ui/primitives";
 import { Notice } from "../ui/states";
+import { humanizeKey } from "../../lib/tool-view";
 
 const RISKY_TOOLS = new Set(["recommend_aircraft_status"]);
-const TOOL_LABELS: Record<string, string> = {
+export const TOOL_LABELS: Record<string, string> = {
   create_work_order: "Raise work order",
   recommend_aircraft_status: "Change aircraft status",
   acknowledge_alert: "Acknowledge alert",
@@ -42,15 +43,19 @@ function asEditableString(value: unknown): string {
 interface ApprovalCardProps {
   item: CopilotPendingItem;
   onDraftChange: (pendingId: string, resolution: CopilotResolution | null) => void;
+  /** Live note text; the page reads it at Submit time so a note typed after Approve/Deny is kept. */
+  onNoteChange?: (pendingId: string, note: string) => void;
 }
 
-/** Approval card: plain-language tool name, a typed editable field per tool
+/** Approval form, rendered inside the awaiting tool-call block (the block
+ * header carries the tool name and the "needs approval" state): a typed
+ * editable field per tool
  * (see `TOOL_FIELDS`) with every other arg shown read-only, justification
  * note, and Approve / Deny. Only fields the human actually changed from the
  * server-provided value are sent as `override_args` -- a plain Approve with
  * no edits sends `override_args: null`. Risky actions require typed
  * confirmation of the tail id before Approve is enabled. */
-export function ApprovalCard({ item, onDraftChange }: ApprovalCardProps) {
+export function ApprovalCard({ item, onDraftChange, onNoteChange }: ApprovalCardProps) {
   const args = item.args ?? {};
   const fields = TOOL_FIELDS[item.tool_name ?? ""] ?? [];
   const editableKeys = new Set(fields.map((f) => f.key));
@@ -105,12 +110,8 @@ export function ApprovalCard({ item, onDraftChange }: ApprovalCardProps) {
   };
 
   return (
-    <div className="hitl hitl-approval">
-      <div className="hitl-head">
-        <Chip tone="warn">Approval needed</Chip>
-        <strong>{TOOL_LABELS[item.tool_name ?? ""] ?? item.tool_name}</strong>
-        {item.is_stale && <Chip>stale (run has moved on)</Chip>}
-      </div>
+    <div className="tcb-form">
+      {item.is_stale && <Chip>stale (run has moved on)</Chip>}
 
       {!approvalAllowed && (
         <Notice tone="plain" role="note">
@@ -143,8 +144,8 @@ export function ApprovalCard({ item, onDraftChange }: ApprovalCardProps) {
           .filter(([k]) => !editableKeys.has(k))
           .map(([k, v]) => (
             <div key={k} style={{ display: "contents" }}>
-              <dt>{k}</dt>
-              <dd className="mono">{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
+              <dt>{humanizeKey(k)}</dt>
+              <dd className={k === "justification" || k === "reason" ? "tcb-prose" : "mono"}>{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
             </div>
           ))}
       </dl>
@@ -160,7 +161,10 @@ export function ApprovalCard({ item, onDraftChange }: ApprovalCardProps) {
 
       <label className="field">
         <span className="field-label">Note (optional)</span>
-        <input id={`note-${item.id}`} className="input" name="note" autoComplete="off" value={note} onChange={(e) => setNote(e.target.value)} />
+        <input id={`note-${item.id}`} className="input" name="note" autoComplete="off" value={note} onChange={(e) => {
+            setNote(e.target.value);
+            onNoteChange?.(item.id, e.target.value);
+          }} />
       </label>
 
       <div className="form-actions" style={{ marginTop: 0 }}>

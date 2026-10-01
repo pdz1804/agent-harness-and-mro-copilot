@@ -151,3 +151,26 @@ describe("StickToBottomController", () => {
     expect(el.scrollTop).toBe(600);
   });
 });
+
+describe("StickToBottomController.anchorTo", () => {
+  it("starts a tall conversation at the anchor and stops following", () => {
+    const el = { scrollTop: 0, scrollHeight: 1200, clientHeight: 500 };
+    const ctrl = new StickToBottomController(el);
+    ctrl.anchorTo(300);
+    expect(el.scrollTop).toBe(300);
+    expect(ctrl.following).toBe(false);
+  });
+  it("clamps to the bottom and keeps following when the anchor fits", () => {
+    const el = { scrollTop: 0, scrollHeight: 600, clientHeight: 500 };
+    const ctrl = new StickToBottomController(el);
+    ctrl.anchorTo(400);
+    expect(el.scrollTop).toBe(100);
+    expect(ctrl.following).toBe(true);
+  });
+  it("never scrolls above the top", () => {
+    const el = { scrollTop: 50, scrollHeight: 1200, clientHeight: 500 };
+    const ctrl = new StickToBottomController(el);
+    ctrl.anchorTo(-16);
+    expect(el.scrollTop).toBe(0);
+  });
+});

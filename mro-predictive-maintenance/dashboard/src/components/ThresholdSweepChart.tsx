@@ -78,7 +78,7 @@ export function ThresholdSweepChart({
     <div className="chart-box">
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
-          <CartesianGrid stroke="#dde2e8" vertical={false} />
+          <CartesianGrid stroke="#eceef2" strokeDasharray="3 4" vertical={false} />
           <XAxis
             dataKey="alerts_per_100"
             type="number"
@@ -89,9 +89,10 @@ export function ThresholdSweepChart({
               position: "insideBottom",
               offset: -4,
               fontSize: 11,
-              fill: "#5a6772",
+              fill: "#5c6576",
             }}
-            stroke="#dde2e8"
+            stroke="transparent"
+            tick={{ fontSize: 11, fill: "#5c6576" }}
           />
           <YAxis
             dataKey="recall"
@@ -99,18 +100,19 @@ export function ThresholdSweepChart({
             domain={[0, 1]}
             tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
             width={44}
-            stroke="#dde2e8"
+            stroke="transparent"
+            tick={{ fontSize: 11, fill: "#5c6576" }}
           />
-          <Tooltip content={<SweepTooltip />} cursor={{ stroke: "#dde2e8" }} />
+          <Tooltip content={<SweepTooltip />} cursor={{ stroke: "rgba(15, 23, 42, 0.16)" }} />
           <ReferenceLine
             y={target.min_recall}
-            stroke="#101820"
+            stroke="#0b1220"
             strokeDasharray="4 4"
             strokeOpacity={0.6}
           />
           <ReferenceLine
             x={target.max_alerts_per_100}
-            stroke="#101820"
+            stroke="#0b1220"
             strokeDasharray="4 4"
             strokeOpacity={0.6}
           />
@@ -134,16 +136,16 @@ export function ThresholdSweepChart({
             x={testPoint.alerts_per_100}
             y={testPoint.recall}
             r={5}
-            fill="#101820"
+            fill="#0b1220"
             stroke={color}
             strokeWidth={2}
           />
         </LineChart>
       </ResponsiveContainer>
       <div className="legend" style={{ marginTop: 8 }}>
-        <span style={{ color }}>&#9679;</span> validation operating point (threshold{" "}
+        <i className="swatch is-dot" style={{ background: color }} /> validation operating point (threshold{" "}
         {valPoint.threshold.toFixed(4)}) &nbsp;&nbsp;
-        <span style={{ color: "#101820" }}>&#9679;</span> same threshold applied to
+        <i className="swatch is-dot" style={{ background: "#0b1220" }} /> same threshold applied to
         held-out test &nbsp;&nbsp; dashed lines: target ({formatPct(target.min_recall, 0)} recall,{" "}
         {formatDecimal(target.max_alerts_per_100, 1)} alerts/100)
       </div>

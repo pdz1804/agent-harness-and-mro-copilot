@@ -40,7 +40,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
+from pydantic_ai.messages import PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolApproved, ToolDenied
 from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
@@ -253,6 +253,12 @@ class RunManager:
     def _schedule(self, run_id: str, *, actor: str, prompt: Optional[str],
                   deferred_results: Optional[DeferredToolResults]) -> None:
         self._running.add(run_id)
+        # Persist the truth for every other reader (second tab, run list):
+        # a scheduled turn -- including a resume after resolve -- is running,
+        # not still awaiting_input. _persist_history writes the terminal status.
+        with self.engine.connect() as conn:
+            conn.execute(update(copilot_runs).where(copilot_runs.c.id == run_id).values(status="running"))
+            conn.commit()
         self._emit(run_id, "run_started", {"run_id": run_id})
 
         async def _task():
@@ -308,10 +314,17 @@ class RunManager:
                     if Agent.is_model_request_node(node):
                         async with node.stream(agent_run.ctx) as request_stream:
                             async for event in request_stream:
-                                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                                # A text part's FIRST chunk arrives inside
+                                # PartStartEvent (TextPart.content), only the
+                                # rest as PartDeltaEvents -- skipping the start
+                                # event dropped the answer's first word.
+                                delta_text = None
+                                if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                                    delta_text = event.part.content
+                                elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
                                     delta_text = event.delta.content_delta
-                                    if delta_text:
-                                        self._emit(run_id, "token", {"text": delta_text})
+                                if delta_text:
+                                    self._emit(run_id, "token", {"text": delta_text})
                     elif Agent.is_call_tools_node(node):
                         for part in getattr(node.model_response, "parts", []):
                             if getattr(part, "part_kind", None) == "tool-call":

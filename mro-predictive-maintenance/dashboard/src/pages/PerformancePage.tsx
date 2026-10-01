@@ -51,13 +51,18 @@ function HeadToHead({ data }: { data: DashboardData }) {
           <div className="chart-box" role="img" aria-label="Grouped bar chart of recall, precision, PR-AUC and ROC-AUC per model">
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
-                <CartesianGrid stroke={CHART.grid} vertical={false} />
-                <XAxis dataKey="metric" stroke={CHART.grid} tick={{ fontSize: 12, fill: CHART.axis }} />
-                <YAxis domain={[0, 1]} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} stroke={CHART.grid} tick={{ fontSize: 11, fill: CHART.axis }} />
-                <Tooltip formatter={(v: number) => formatPct(v, 1)} />
-                <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} />
+                <CartesianGrid stroke={CHART.grid} strokeDasharray="3 4" vertical={false} />
+                <XAxis dataKey="metric" stroke="transparent" tickLine={false} tick={{ fontSize: 12, fill: CHART.axis }} />
+                <YAxis domain={[0, 1]} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} stroke="transparent" tickLine={false} tick={{ fontSize: 11, fill: CHART.axis }} />
+                <Tooltip
+                  formatter={(v: number) => formatPct(v, 1)}
+                  cursor={{ fill: "rgba(52, 81, 209, 0.05)", radius: 6 }}
+                  contentStyle={{ border: 0, borderRadius: 10, boxShadow: "var(--shadow-float)", fontSize: 12, padding: "8px 12px" }}
+                  labelStyle={{ fontWeight: 600, marginBottom: 4, color: CHART.text }}
+                />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
                 {models.map((m) => (
-                  <Bar key={m.id} dataKey={m.label} fill={SERIES_COLOR[m.id] ?? CHART.accent} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+                  <Bar key={m.id} dataKey={m.label} fill={SERIES_COLOR[m.id] ?? CHART.accent} radius={[6, 6, 2, 2]} maxBarSize={28} isAnimationActive={false} />
                 ))}
               </BarChart>
             </ResponsiveContainer>

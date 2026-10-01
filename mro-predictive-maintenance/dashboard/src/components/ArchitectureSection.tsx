@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import { PageHead } from "./ui/primitives";
+import { ArrowRightIcon } from "./ui/icons";
 import { DocLayout, DocSection } from "./ui/doc-layout";
 
 interface Node {
@@ -85,7 +86,7 @@ export function ArchitectureSection() {
                       </div>
                       {j < stage.nodes.length - 1 && (
                         <span className="arch-arrow" aria-hidden="true">
-                          &rarr;
+                          <ArrowRightIcon />
                         </span>
                       )}
                     </Fragment>

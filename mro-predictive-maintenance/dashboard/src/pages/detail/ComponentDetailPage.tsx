@@ -147,7 +147,7 @@ export function ComponentDetailPage({ componentId, onAskCopilot }: Props) {
             <Panel title="Risk now">
               <div className="stack">
                 <div className="row row-between">
-                  <span style={{ fontSize: "var(--fs-2xl)", fontWeight: 600, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>
+                  <span className="display" style={{ fontSize: "1.75rem", fontWeight: 650, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
                     {formatPct(c.riskScore, 2)}
                   </span>
                   {c.alert ? <Chip tone="bad">Above threshold</Chip> : <Chip tone="good">Below threshold</Chip>}

@@ -438,3 +438,59 @@ def test_cleanup_legacy_pending_cancels_raw_shaped_rows_idempotently(client):
         ).mappings().first()
     assert still["resolved_at"] == row["resolved_at"]  # untouched by the second pass
     assert second_pass == 0
+
+
+def test_resume_turn_marks_run_running_on_the_server_while_in_flight(client, monkeypatch):
+    """A second tab must see ``running`` (not ``awaiting_input``) during a resume."""
+    import asyncio
+    import threading
+
+    from src.copilot.runs import RunManager
+
+    _, prompt = _wo_scenario(client)
+    run_id = client.post("/copilot/runs", json={"prompt": prompt}).json()["run_id"]
+    pending = _wait_for_status(client, run_id, {"awaiting_input"})["pending"][0]
+
+    release = threading.Event()
+
+    async def _blocked_turn(self, run_id, **_kwargs):
+        while not release.is_set():
+            await asyncio.sleep(0.02)
+
+    monkeypatch.setattr(RunManager, "_execute_turn", _blocked_turn)
+    try:
+        resp = client.post(
+            f"/copilot/runs/{run_id}/resolve", headers={"X-User": "lead.engineer"},
+            json={"resolutions": [{"pending_id": pending["id"], "decision": "approve"}]},
+        )
+        assert resp.status_code == 202
+        assert client.get(f"/copilot/runs/{run_id}").json()["status"] == "running"
+        listed = {r["id"]: r for r in client.get("/copilot/runs").json()}
+        if run_id in listed:
+            assert listed[run_id]["status"] == "running"
+    finally:
+        release.set()
+
+
+def test_run_snapshot_exposes_resolved_items_with_actor_time_and_note(client):
+    _, prompt = _wo_scenario(client)
+    run_id = client.post("/copilot/runs", json={"prompt": prompt}).json()["run_id"]
+    pending = _wait_for_status(client, run_id, {"awaiting_input"})["pending"][0]
+    client.post(
+        f"/copilot/runs/{run_id}/resolve", headers={"X-User": "lead.engineer"},
+        json={"resolutions": [{"pending_id": pending["id"], "decision": "deny",
+                               "answer_text": "defer to next A-check"}]},
+    )
+    final = _wait_for_status(client, run_id, {"completed"})
+    resolved = [r for r in final["resolved"] if r["id"] == pending["id"]]
+    assert len(resolved) == 1
+    r = resolved[0]
+    assert r["tool_call_id"] == pending["tool_call_id"]
+    assert r["tool_name"] == "create_work_order"
+    assert r["decision"] == "deny"
+    assert r["resolved_by"] == "lead.engineer"
+    assert r["resolved_at"]
+    assert r["note"] == "defer to next A-check"
+    # the snapshot's tool_call carries the same id, so the UI can attach the decision to its block
+    call_ids = {m.get("tool_call_id") for m in final["messages"] if m["role"] == "tool_call"}
+    assert pending["tool_call_id"] in call_ids

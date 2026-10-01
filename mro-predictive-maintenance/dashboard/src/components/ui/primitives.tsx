@@ -1,6 +1,6 @@
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useId, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Tone } from "../../lib/risk";
-import { AlertTriangleIcon, CheckCircleIcon, InfoIcon, OctagonIcon, RingIcon } from "./icons";
+import { AlertTriangleIcon, CheckCircleIcon, ChevronRightIcon, InfoIcon, OctagonIcon, RingIcon } from "./icons";
 
 /* ---- Button: primary (one per view) / secondary / ghost / danger / link --- */
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "link";
@@ -152,6 +152,91 @@ export interface StatItem {
   pressed?: boolean;
   onClick?: () => void;
   key?: string;
+  /** Leading icon in the label row. */
+  icon?: ReactNode;
+  /** A real series (oldest first) drawn as a sparkline. Never fabricate one. */
+  trend?: number[];
+  trendTone?: "accent" | "bad" | "warn" | "good";
+  /** Short change note shown as a chip, e.g. "+3 in 24h". */
+  delta?: { text: string; tone?: Tone };
+}
+
+const NUMERIC = /^(-?\d+(?:\.\d+)?)(%?)$/;
+
+/** Ticks a plain number (or "12.5%") up from zero once, 500ms, ease-out.
+ * Anything else renders as-is; reduced motion renders the final value. */
+export function CountUp({ value }: { value: ReactNode }) {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value : null;
+  const match = text ? NUMERIC.exec(text) : null;
+  const target = match ? Number(match[1]) : 0;
+  const decimals = match && match[1].includes(".") ? match[1].split(".")[1].length : 0;
+  const [shown, setShown] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!match) return;
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce || target === 0) {
+      setShown(target);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 500);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setShown(target * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, decimals, match?.[2]]);
+
+  if (!match) return <>{value}</>;
+  const n = shown ?? 0;
+  return (
+    <>
+      <span aria-hidden="true">
+        {n.toFixed(decimals)}
+        {match[2]}
+      </span>
+      <span className="sr-only">{text}</span>
+    </>
+  );
+}
+
+/** Smooth sparkline with a soft gradient fill. Decorative: the value and
+ * sub-line beside it carry the meaning. */
+export function Sparkline({ points, tone = "accent" }: { points: number[]; tone?: "accent" | "bad" | "warn" | "good" }) {
+  const id = useId();
+  if (points.length < 2) return null;
+  const w = 120;
+  const h = 34;
+  const max = Math.max(...points);
+  const min = Math.min(...points);
+  const span = max - min || 1;
+  const xy = points.map((p, i) => [(i / (points.length - 1)) * w, h - 3 - ((p - min) / span) * (h - 8)] as const);
+  let d = `M${xy[0][0]},${xy[0][1]}`;
+  for (let i = 1; i < xy.length; i++) {
+    const [x0, y0] = xy[i - 1];
+    const [x1, y1] = xy[i];
+    const cx = (x0 + x1) / 2;
+    d += ` C${cx},${y0} ${cx},${y1} ${x1},${y1}`;
+  }
+  const last = xy[xy.length - 1];
+  return (
+    <svg className={`spark is-${tone}`} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={`${d} L${w},${h} L0,${h} Z`} fill={`url(#${id})`} stroke="none" />
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      <circle cx={last[0]} cy={last[1]} r="2.5" fill="var(--surface)" stroke="currentColor" strokeWidth="1.75" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
 }
 
 export function StatBar({ items, label }: { items: StatItem[]; label: string }) {
@@ -160,9 +245,26 @@ export function StatBar({ items, label }: { items: StatItem[]; label: string }) 
       {items.map((s, i) => {
         const inner = (
           <>
-            <div className="stat-label">{s.label}</div>
-            <div className={`stat-value${s.small ? " sm" : ""}`}>{s.value}</div>
-            {s.sub !== undefined && <div className="stat-sub">{s.sub}</div>}
+            <div className="stat-label">
+              {s.icon && <span className="stat-icon">{s.icon}</span>}
+              {s.label}
+            </div>
+            <div className="stat-row">
+              <div className={`stat-value${s.small ? " sm" : ""}`}>
+                <CountUp value={s.value} />
+              </div>
+              {s.trend && s.trend.length > 1 && <Sparkline points={s.trend} tone={s.trendTone} />}
+            </div>
+            {(s.sub !== undefined || s.delta) && (
+              <div className="stat-sub">
+                {s.delta && (
+                  <Chip tone={s.delta.tone ?? "neutral"} icon={null}>
+                    {s.delta.text}
+                  </Chip>
+                )}
+                {s.sub}
+              </div>
+            )}
           </>
         );
         const key = s.key ?? String(i);
@@ -215,7 +317,7 @@ export function PageHead({
             {crumbs.map((c, i) => (
               <span key={`${c.label}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 {c.href ? <a href={c.href}>{c.label}</a> : <span aria-current="page">{c.label}</span>}
-                {i < crumbs.length - 1 && <span aria-hidden="true">/</span>}
+                {i < crumbs.length - 1 && <ChevronRightIcon />}
               </span>
             ))}
           </nav>
