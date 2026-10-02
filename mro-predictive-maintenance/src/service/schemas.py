@@ -140,6 +140,7 @@ class FleetPageResponse(BaseModel):
     limit: int
     counts: dict[str, int]  # whole fleet per band, independent of filters
     component_types: list[str]
+    aircraft_types: list[str] = []  # distinct fleets (e.g. A321, ATR72) for the filter
     items: list[FleetListItem]
 
 

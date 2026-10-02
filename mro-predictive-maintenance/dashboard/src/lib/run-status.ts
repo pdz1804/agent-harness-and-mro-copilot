@@ -5,6 +5,19 @@ export function actionablePending(pending: CopilotPendingItem[]): CopilotPending
   return pending.filter((p) => !p.is_stale && (!p.status || p.status === "pending"));
 }
 
+/**
+ * Keep the drafted decisions whose pending row is still actionable. A run
+ * snapshot refresh (stream end, its backstop re-fetch, polling) must not wipe
+ * a decision the human already drafted on a row that is still waiting --
+ * otherwise the card says "drafted" while the batch footer counts 0.
+ */
+export function keepLiveDrafts<T>(drafts: Record<string, T>, pending: CopilotPendingItem[]): Record<string, T> {
+  const live = new Set(actionablePending(pending).map((p) => p.id));
+  const kept: Record<string, T> = {};
+  for (const [id, draft] of Object.entries(drafts)) if (live.has(id)) kept[id] = draft;
+  return kept;
+}
+
 /** Legacy rows the server's startup cleanup cancelled: the server's explicit stale marker. */
 export function legacyCancelledPending(pending: CopilotPendingItem[]): CopilotPendingItem[] {
   return pending.filter((p) => !!p.status && p.status !== "pending");

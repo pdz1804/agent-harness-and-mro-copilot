@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveStatus, isSettledAfterResume, isStaleRun, runStatusLabel, workOrderIdFromResult } from "./run-status";
+import { effectiveStatus, isSettledAfterResume, isStaleRun, keepLiveDrafts, runStatusLabel, workOrderIdFromResult } from "./run-status";
 import type { CopilotPendingItem } from "../types";
 
 const actionable: CopilotPendingItem = { id: "p1", kind: "approval", tool_name: "create_work_order", args: {}, question: null, is_stale: false };
@@ -67,5 +67,18 @@ describe("runStatusLabel", () => {
     expect(runStatusLabel("awaiting_input")).toBe("Awaiting input");
     expect(runStatusLabel("completed")).toBe("Completed");
     expect(runStatusLabel("")).toBe("");
+  });
+});
+
+describe("keepLiveDrafts", () => {
+  it("keeps drafts for still-actionable rows and drops resolved or vanished ones", () => {
+    const resolved: CopilotPendingItem = { ...actionable, id: "p2", status: "resolved" };
+    const stale: CopilotPendingItem = { ...actionable, id: "p3", is_stale: true };
+    const drafts = { p1: "approve", p2: "deny", p3: "approve", gone: "deny" };
+    expect(keepLiveDrafts(drafts, [actionable, resolved, stale])).toEqual({ p1: "approve" });
+  });
+
+  it("returns an empty map when nothing is pending", () => {
+    expect(keepLiveDrafts({ p1: "approve" }, [])).toEqual({});
   });
 });

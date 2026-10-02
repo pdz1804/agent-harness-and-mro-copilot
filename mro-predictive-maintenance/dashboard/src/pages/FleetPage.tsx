@@ -109,10 +109,10 @@ function ComponentsView({ onAskCopilot }: { onAskCopilot: AskCopilot }) {
   const sort = parseSort(query.sort) ?? { key: "rank", dir: "asc" as const };
   const server = toServerSort(sort);
   const requested = clampPage(query.page, Number.MAX_SAFE_INTEGER);
-  const filters = { band: query.band, componentType: query.type, q: query.q, sort: server.sort, dir: server.dir };
+  const filters = { band: query.band, componentType: query.type, aircraftType: query.fleet, q: query.q, sort: server.sort, dir: server.dir };
   const fleet = useAsync(
     () => getFleetPage({ ...filters, offset: (requested - 1) * FLEET_PAGE_SIZE, limit: FLEET_PAGE_SIZE }),
-    [query.band, query.type, query.q, server.sort, server.dir, requested],
+    [query.band, query.type, query.fleet, query.q, server.sort, server.dir, requested],
   );
   const openAlerts = useAsync(() => listAlerts("open"), []);
   const reloadOpenAlerts = openAlerts.reload;
@@ -260,7 +260,7 @@ function ComponentsView({ onAskCopilot }: { onAskCopilot: AskCopilot }) {
     { id: "watch", label: "Watch", count: data?.counts.watch },
     { id: "normal", label: "Normal", count: data?.counts.normal },
   ];
-  const filtered = query.band !== "all" || query.type !== "all" || query.q !== "";
+  const filtered = query.band !== "all" || query.type !== "all" || query.fleet !== "all" || query.q !== "";
   const pager = data && data.total > 0 && (
     <div className="pager">
       <span className="tnum">
@@ -289,7 +289,7 @@ function ComponentsView({ onAskCopilot }: { onAskCopilot: AskCopilot }) {
         : (
           <>
             Nothing in this band and filter.{" "}
-            <button type="button" className="btn btn-link" onClick={() => setQuery({ band: null, type: null, q: null, page: null })}>
+            <button type="button" className="btn btn-link" onClick={() => setQuery({ band: null, type: null, fleet: null, q: null, page: null })}>
               Clear filters
             </button>
           </>
@@ -363,6 +363,14 @@ function ComponentsView({ onAskCopilot }: { onAskCopilot: AskCopilot }) {
             {(data?.component_types ?? []).map((t) => (
               <option key={t} value={t}>
                 {humanizeType(t)}
+              </option>
+            ))}
+          </select>
+          <select className="select select-sm" aria-label="Aircraft type" value={query.fleet} onChange={(e) => setQuery({ fleet: e.target.value, page: null })}>
+            <option value="all">{data?.aircraft_types?.length ? `Fleet: all ${data.aircraft_types.length} types` : "Fleet: all aircraft"}</option>
+            {(data?.aircraft_types ?? []).map((t) => (
+              <option key={t} value={t}>
+                Fleet: {t}
               </option>
             ))}
           </select>

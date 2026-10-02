@@ -260,12 +260,13 @@ def fleet_components(
     limit: int = 20,
     band: str = "all",
     component_type: Optional[str] = None,
+    aircraft_type: Optional[str] = None,
     q: Optional[str] = None,
     sort: str = "risk",
     dir: str = "desc",
 ) -> FleetPageResponse:
-    """The whole scored fleet, one page at a time. Filters (band, type, free
-    text over component/aircraft id) and sort apply before paging; ``rank``
+    """The whole scored fleet, one page at a time. Filters (band, component
+    type, aircraft type, free text over component/aircraft id) and sort apply before paging; ``rank``
     is always the global risk rank, so it stays stable across filters."""
     _require_model()
     if offset < 0:
@@ -306,11 +307,13 @@ def fleet_components(
 
     counts = {b: sum(1 for i in ranked if i.band == b) for b in FLEET_BANDS[1:]}
     types = sorted({i.component_type for i in ranked})
+    ac_types = sorted({i.aircraft_type for i in ranked if i.aircraft_type})
     needle = (q or "").strip().lower()
     filtered = [
         i for i in ranked
         if (band == "all" or i.band == band)
         and (not component_type or i.component_type == component_type)
+        and (not aircraft_type or i.aircraft_type == aircraft_type)
         and (not needle or needle in i.component_id.lower() or needle in i.aircraft_id.lower())
     ]
     if sort == "risk":
@@ -330,6 +333,7 @@ def fleet_components(
         limit=limit,
         counts=counts,
         component_types=types,
+        aircraft_types=ac_types,
         items=filtered[offset : offset + limit],
     )
 

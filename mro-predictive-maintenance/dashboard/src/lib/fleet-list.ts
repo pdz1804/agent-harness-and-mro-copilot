@@ -6,7 +6,7 @@ import { toCsv } from "./csv";
 export const FLEET_PAGE_SIZE = 20;
 
 /** URL defaults: `#/ops/fleet?band=watch&page=2&sort=cycle:asc`. */
-export const FLEET_DEFAULTS = { band: "all", type: "all", q: "", sort: "rank:asc", page: "1" };
+export const FLEET_DEFAULTS = { band: "all", type: "all", fleet: "all", q: "", sort: "rank:asc", page: "1" };
 
 export const BAND_LABEL: Record<FleetBand, string> = { alert: "Alert", watch: "Watch", normal: "Normal" };
 export const BAND_TONE: Record<FleetBand, "bad" | "warn" | "good"> = { alert: "bad", watch: "warn", normal: "good" };

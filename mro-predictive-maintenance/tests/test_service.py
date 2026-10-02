@@ -192,6 +192,19 @@ def test_fleet_components_filters_and_sorts(client):
     assert lowest["rank"] == body["n_scored"]
 
 
+def test_fleet_components_filters_by_aircraft_type(client):
+    body = client.get("/fleet/components?limit=1000").json()
+    ac_types = body["aircraft_types"]
+    assert ac_types and ac_types == sorted({i["aircraft_type"] for i in body["items"] if i["aircraft_type"]})
+    totals = 0
+    for ac_type in ac_types:
+        page = client.get(f"/fleet/components?aircraft_type={ac_type}&limit=1000").json()
+        assert page["total"] > 0 and all(i["aircraft_type"] == ac_type for i in page["items"])
+        totals += page["total"]
+    assert totals == body["n_scored"]
+    assert client.get("/fleet/components?aircraft_type=B747").json()["total"] == 0
+
+
 @pytest.mark.parametrize(
     "qs", ["offset=-1", "limit=0", "limit=1001", "band=red", "sort=features", "dir=up"],
 )

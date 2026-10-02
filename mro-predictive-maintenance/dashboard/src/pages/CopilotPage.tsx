@@ -29,6 +29,7 @@ import {
   effectiveStatus,
   isSettledAfterResume,
   isStaleRun as computeStaleRun,
+  keepLiveDrafts,
   legacyCancelledPending,
   runStatusLabel,
   workOrderIdFromResult,
@@ -196,7 +197,7 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
     getCopilotRun(runId)
       .then((d) => {
         setDetail(d);
-        setDrafts({});
+        setDrafts((prev) => keepLiveDrafts(prev, d.pending));
         if (resumingRef.current && isSettledAfterResume(d)) setResuming(false);
       })
       .catch((err: unknown) => setError(humanizeError(err)));
@@ -540,6 +541,16 @@ export function CopilotPage({ prefillPrompt, onPrefillConsumed, onPendingCountCh
 
               {detail && (
                 <div className="conversation">
+                  {/* The run snapshot taken right after start may not carry the
+                      user turn yet; show the prompt from the run list so the
+                      question stays on screen while the copilot streams. */}
+                  {activeSummary?.user_prompt && !transcript.some((t) => t.kind === "message" && t.message.role === "user") && (
+                    <div className="msg msg-user">
+                      <div className="bubble">
+                        <SafeMarkdown text={activeSummary.user_prompt} />
+                      </div>
+                    </div>
+                  )}
                   {transcript.map((t, ti) => {
                     if (t.kind === "tool") {
                       return (

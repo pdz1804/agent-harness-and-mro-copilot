@@ -1646,3 +1646,48 @@ button.tcb-head:hover {
     max-width: 100%;
   }
 }
+
+/* Overview: active alerts by component type (horizontal bars). */
+.type-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+.type-bars li {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--s-3);
+}
+.type-bar-label {
+  font-size: var(--fs-xs);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--sunken);
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.type-bar-label:hover {
+  color: var(--accent);
+}
+.type-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.type-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--bad);
+}
+.type-bar-count {
+  text-align: right;
+  font-size: var(--fs-sm);
+}

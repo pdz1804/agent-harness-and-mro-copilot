@@ -226,6 +226,7 @@ export interface FleetPageResponse {
   /** Whole fleet per band, independent of the filters. */
   counts: Record<FleetBand, number>;
   component_types: string[];
+  aircraft_types?: string[];
   items: FleetListItem[];
 }
 

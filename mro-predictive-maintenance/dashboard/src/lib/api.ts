@@ -79,6 +79,7 @@ export interface FleetPageQuery {
   limit?: number;
   band?: string;
   componentType?: string;
+  aircraftType?: string;
   q?: string;
   sort?: string;
   dir?: "asc" | "desc";
@@ -91,6 +92,7 @@ export function getFleetPage(query: FleetPageQuery = {}): Promise<FleetPageRespo
   if (query.limit) params.set("limit", String(query.limit));
   if (query.band && query.band !== "all") params.set("band", query.band);
   if (query.componentType && query.componentType !== "all") params.set("component_type", query.componentType);
+  if (query.aircraftType && query.aircraftType !== "all") params.set("aircraft_type", query.aircraftType);
   if (query.q) params.set("q", query.q);
   if (query.sort) params.set("sort", query.sort);
   if (query.dir) params.set("dir", query.dir);

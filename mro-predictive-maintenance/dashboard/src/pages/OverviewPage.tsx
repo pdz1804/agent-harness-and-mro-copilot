@@ -1,4 +1,5 @@
-import { getActivity, getGlobalPending, getPerformance, listAlerts, listWorkOrders } from "../lib/api";
+import { getActivity, getFleetPage, getGlobalPending, getPerformance, listAlerts, listWorkOrders } from "../lib/api";
+import { alertsByType } from "../lib/alerts-by-type";
 import { useAsync } from "../hooks/useAsync";
 import { useAcknowledge } from "../hooks/useAcknowledge";
 import { useCanWrite } from "../hooks/useCanWrite";
@@ -109,6 +110,8 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
   }, []);
   const approvals = useAsync(() => getGlobalPending(), [pendingCount]);
   const activity = useAsync(() => getActivity(8), []);
+  // Only the type list and fleet size are needed; limit=1 keeps the payload small.
+  const fleetMix = useAsync(() => getFleetPage({ limit: 1 }), []);
   const writable = useCanWrite();
   const reloadLive = live.reload;
   const reloadActivity = activity.reload;
@@ -129,6 +132,9 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
   const lastOpened = alertTimes.length > 0 ? alertTimes.reduce((m, t) => (Date.parse(t) > Date.parse(m) ? t : m)) : null;
   const woTimes = (live.data?.wos ?? []).map((w) => w.created_at);
   const newAlerts = countSince(alertTimes);
+  const byType = alertsByType(live.data?.alerts ?? [], fleetMix.data?.component_types ?? []);
+  const typeMax = Math.max(1, ...byType.map((t) => t.count));
+  const perType = fleetMix.data && fleetMix.data.component_types.length > 0 ? Math.round(fleetMix.data.n_scored / fleetMix.data.component_types.length) : null;
 
   const splitTotal = splits.train.rows + splits.val.rows + splits.test.rows;
   const parts = [
@@ -222,6 +228,7 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
       />
 
       <div className="grid-main-side">
+        <div className="stack" style={{ gap: "var(--s-5)" }}>
         <Panel
           flush
           title="Needs attention"
@@ -264,6 +271,36 @@ export function OverviewPage({ data, pendingCount }: { data: DashboardData; pend
             />
           )}
         </Panel>
+
+        <Panel
+          title="Alerts by component type"
+          sub={perType != null ? `Active alerts per type · ${perType} components per type in the scored fleet` : "Active alerts per type in the scored fleet"}
+        >
+          {live.error ? (
+            <Notice tone="plain">Unavailable while the service is unreachable.</Notice>
+          ) : live.loading && !live.data ? (
+            <LoadingRows rows={3} height={20} />
+          ) : byType.length === 0 ? (
+            <EmptyState title="No alerts yet" center>
+              Run a fleet scan to raise alerts.
+            </EmptyState>
+          ) : (
+            <ul className="type-bars" aria-label="Active alerts by component type">
+              {byType.map((t) => (
+                <li key={t.type}>
+                  <a className="type-bar-label mono" href={`${hrefFor("ops/fleet")}?type=${encodeURIComponent(t.type)}`} title={`${humanizeType(t.type)} in the fleet`}>
+                    {t.type}
+                  </a>
+                  <span className="type-bar-track" aria-hidden="true">
+                    <span className="type-bar-fill" style={{ width: `${(t.count / typeMax) * 100}%` }} />
+                  </span>
+                  <span className="type-bar-count tnum">{t.count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+        </div>
 
         <Panel
           title="Held-out result"

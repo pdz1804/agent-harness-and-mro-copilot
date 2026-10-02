@@ -135,7 +135,7 @@ transcripts):
 | `GET /model-card` | model id, threshold, val/test metrics, training date, feature list -- read verbatim from `reports/model_card.json` |
 | `POST /score` | component feature payload -> risk score, alert (score >= threshold), live SHAP factors |
 | `GET /fleet/top-risk?n=` | live-scores the latest snapshot of every active component in the held-out **test** split, ranked |
-| `GET /fleet/components?offset=&limit=&band=&component_type=&q=&sort=&dir=` | the same ranking for the whole fleet, paginated server-side; each row carries its global `rank` and a `band` (`alert` at/over the threshold, `watch` at/over `WATCH_FLOOR` = 0.5, else `normal`); `counts` are whole-fleet per band |
+| `GET /fleet/components?offset=&limit=&band=&component_type=&aircraft_type=&q=&sort=&dir=` | the same ranking for the whole fleet, paginated server-side; each row carries its global `rank` and a `band` (`alert` at/over the threshold, `watch` at/over `WATCH_FLOOR` = 0.5, else `normal`); `counts` are whole-fleet per band; `component_types` and `aircraft_types` feed the filters |
 
 Missing numeric features are accepted as `null` and handled exactly like
 training (routed natively by `hist_gradient_boosting`, the served model;
