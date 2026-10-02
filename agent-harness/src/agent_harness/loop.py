@@ -7,8 +7,7 @@ is hit.
 
 Phase 11b migrated this from a hand-parsed `LLMClient.raw_decide()` loop to
 driving `pydantic_ai.Agent.iter()` node-by-node (see
-`plans/260929-1344-stems-vn-ai-engineer-test/reports/
-phase-11b-spike-pydantic-ai-report.md` for the verified API patterns this
+the Pydantic AI spike report for the verified API patterns this
 follows). Every existing safety property is preserved by design, just
 re-anchored to Pydantic AI's node types:
 

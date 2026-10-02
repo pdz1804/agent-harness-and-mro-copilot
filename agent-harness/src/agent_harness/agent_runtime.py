@@ -11,7 +11,7 @@ Resolution order (`resolve_run_plan`):
 2. `assigned` mode: every skill in `agent.skill_ids` (`skills_assigned`).
 3. `auto` mode: a separate, cheap router `pydantic_ai.Agent` call
    (`output_type=SkillSelection`) over the agent's readable+enabled
-   candidate skills picks 0-2 (`skill_routed`); a low-confidence or empty
+   eligible skills picks 0-2 (`skill_routed`); a low-confidence or empty
    selection degrades to no skill; a router failure degrades to no skill
    too (`skill_routing_failed`) and never fails the run.
 4. `none` mode (or no active skill resolved above): the agent's own
@@ -71,7 +71,7 @@ MEMORY_GUIDE = (
 class SkillSelection(BaseModel):
     """Structured output of the auto-discover router agent."""
 
-    skills: list[str] = Field(default_factory=list, description="0-2 candidate skill slugs, best first.")
+    skills: list[str] = Field(default_factory=list, description="0-2 eligible skill slugs, best first.")
     rationale: str = Field(default="", description="One or two sentences explaining the choice.")
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
@@ -142,7 +142,7 @@ def _readable_enabled_skill_by_slug(
 
 def _candidate_skills(agent: dict[str, Any], user_id: str, user_role: Role) -> list[dict[str, Any]]:
     """Every enabled skill readable by the caller, optionally narrowed to
-    `agent.skill_ids` when that list is non-empty (an explicit candidate
+    `agent.skill_ids` when that list is non-empty (an explicit eligible-skill
     allow-list for `auto` mode; empty means "every readable enabled
     skill")."""
     all_enabled = skills_repo.list_skills(enabled=True)
@@ -167,7 +167,7 @@ def run_router(
 ) -> tuple[SkillSelection, float, Optional[int]]:
     router_prompt, _ = prompts_repo.get_active_content("skill-router")
     system_prompt = router_prompt or (
-        "Select the 0-2 best-matching skill(s) for the objective from the candidate list, or "
+        "Select the 0-2 best-matching skill(s) for the objective from the eligible list, or "
         "none if nothing fits well. Respond with your selection, a short rationale, and a "
         "confidence between 0 and 1."
     )

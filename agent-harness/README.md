@@ -1,16 +1,17 @@
 # Agent Harness
 
-An LLM <-> tool execution harness for an ops assistant, built for the
-STEMS VN AI Engineer take-home test, grown into a small internal platform:
-real RBAC, a prompt library, named agents with skill routing, live
-dashboards, a chat inspector, and an LLM-as-judge eval agent — all on top
-of the original decide -> validate -> (approve) -> execute -> record loop
-(schema validation, retries/timeouts, a human-approval gate on
+An LLM <-> tool execution harness for an ops assistant, grown into a small
+internal platform: real RBAC, a prompt library, named agents with skill
+routing, live dashboards, a chat inspector, and an LLM-as-judge eval agent,
+all on top of the core decide -> validate -> (approve) -> execute -> record
+loop (schema validation, retries/timeouts, a human-approval gate on
 `create_incident`, step/wall-clock limits, a structured trace per run).
-Exposed via a CLI, a FastAPI backend with a real pause/resume approval
-flow, and a React/TypeScript web console (`web/`) — a 15-tab ops platform
-for watching a run live, approving/denying from the browser, managing
-agents/skills/prompts, and scoring run quality.
+It is exposed through a CLI, a FastAPI backend with a real pause/resume
+approval flow, and a React/TypeScript web console (`web/`) for watching a
+run live, approving or denying from the browser, managing agents, skills
+and prompts, and scoring run quality.
+
+![A run paused for approval](docs/images/chat-approval-1440.png)
 
 **Everything is real except input data.** The LLM is a real OpenAI model
 with native tool calling; `search_knowledge_base` is real BM25/hybrid
@@ -19,11 +20,12 @@ runs, events, prompts, skills, agents, dashboards, eval results, users) is
 backed by a real Postgres database (via `docker-compose.yml` + Alembic
 migrations). Only the *content* is mock: the 18 runbook docs in
 `data/kb/`, the seed services in `data/seed/services.json`, and the 4
-seeded users' identities (see "RBAC" below — real enforcement, not real
+seeded users' identities (see "RBAC" below: real enforcement, not real
 authentication). See `docs/design-report.md` for the full design
-(including the v3 sections on RBAC, skill routing, dashboard safety
+(including the sections on RBAC, skill routing, dashboard safety
 layers, and eval-judge methodology) and `docs/product/PRD.md` for the
-product scope/status.
+product scope and status. The repository-level overview, requirements
+coverage and run guide are in the [root README](../README.md).
 
 ## Quickstart (one command, after setup)
 
@@ -39,12 +41,15 @@ Open **http://127.0.0.1:8000/**. That one process serves the API and the
 built web console together — there's nothing else to start. See "Setup"
 below for first-time details (Python venv, Node version, etc.).
 
+macOS / Linux: use `cp .env.example .env` instead of `copy`, and
+`(cd web && npm install && npm run build)` for the web step.
+
 ## Architecture
 
 ```mermaid
 flowchart TB
     subgraph Browser
-        UI["React/TS web console\n(web/, 18 pages, hash routing)"]
+        UI["React/TS web console\n(web/, path-based routing)"]
     end
     subgraph API["api.py — FastAPI (one uvicorn process)"]
         Routers["routers/: agents, skills, prompts, dashboards, evals"]
@@ -144,7 +149,7 @@ user switcher (top of the sidebar) just sets an `X-User-Id` header (SSE
 connections pass `?as_user=` instead) that the server resolves to one of 4
 seeded users. Anyone with `curl` can set that header to any user id and
 act as them; this is a deliberate, documented scope cut for a local-only
-take-home app, not an oversight.
+local-only app, not an oversight.
 
 What **is** real: `agent_harness/rbac.py` enforces a role -> action
 permission matrix, and a per-resource ownership+visibility check
@@ -184,7 +189,8 @@ registered on the FastAPI app and asserts exactly this.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.10+ (developed and tested on 3.11)
+- Node.js 20.19+ or 22.12+ for the web console (Vite 8)
 - Docker (for the Postgres persistence layer — `docker-compose.yml` at the
   project root). Running the test suite does **not** require a manual
   `docker compose up`: it uses `testcontainers` to spin up (and tear down)
@@ -251,7 +257,7 @@ codebase. See `.env.example` for every variable this harness reads.
 pytest
 ```
 
-Expected: 450+ tests pass, 0 failures, **no API key required, no manual
+Expected: 669 tests pass, 0 failures (about 11 minutes), **no API key required, no manual
 `docker compose up` required** — the default `pytest` run excludes the 2
 opt-in `live` tests via the `live` marker (`-m "not live"`, set in
 `pyproject.toml`'s `addopts`). `tests/conftest.py` spins up a throwaway
@@ -404,7 +410,7 @@ python cli.py --mock --auto-approve "search-index is down, please create an inci
 
 ## Run the app (backend + web console)
 
-**Documented/graded run mode: one process.** Build the web console once,
+**Recommended run mode: one process.** Build the web console once,
 then start the FastAPI backend — it serves both the API and the built
 frontend from the same `uvicorn` process on one port, so there is no CORS
 involved on this path at all.
@@ -451,8 +457,7 @@ Open **http://localhost:5173/**. `api.py` enables CORS for
 `localhost:5173`/`127.0.0.1:5173` specifically to support this loop; the
 frontend defaults its API base URL to `http://127.0.0.1:8000` when running
 under `npm run dev` (see `web/src/lib/api.ts`). This mode is a convenience
-only — the single-process build above is the one that's actually graded/
-verified end to end.
+only — the single-process build above is the one that is verified end to end.
 
 ### Two run flows on the backend
 
@@ -487,7 +492,7 @@ verified end to end.
   to watch a run live.
 - **`GET /runs/{run_id}/export`** — full run + trace as one JSON document
   (used by the web console's Logs page "Export" button, and for attaching
-  real evidence to a submission).
+  real evidence to a bug report).
 
 A ready-to-import Postman collection covering the health check, happy
 path, both `POST /run` approval outcomes, and a validation-error case is
@@ -548,7 +553,7 @@ agent-harness/
   src/agent_harness/       harness package (see architecture summary above)
   data/kb/                 18 mock ops runbooks (*.md), BM25-indexed
   data/seed/services.json  mock service seed data
-  tests/                   pytest suite (330+ tests + 2 opt-in `live` tests
+  tests/                   pytest suite (669 tests + 2 opt-in `live` tests
                               + test_e2e_smoke.py, marked `e2e`, default-on)
   cli.py                   CLI entrypoint
   api.py                   FastAPI entrypoint (sync + async run flows,
@@ -556,7 +561,7 @@ agent-harness/
                               routers/{agents,skills,prompts,dashboards,evals};
                               serves web/dist as static files once built)
   web/                     React/TypeScript ops console (Vite + Tailwind,
-                              15 sidebar tabs — see "Feature tour" above)
+                              see "Feature tour" above; vitest suite of 332 tests)
   postman/                 Postman collection for the API
   docs/design-report.md    design write-up (architecture, env vars,
                               limitations, future work, v3 RBAC/skills/
@@ -596,9 +601,10 @@ the short version:
 - The eval judge scores one transcript at a time with no calibration
   step against human review, and scoring runs are manually triggered only
   (no scheduled/recurring evals) — design-report.md §11d.
-- Dashboard widget SQL is read-only-enforced three ways (parser + `READ
-  ONLY` transaction + statement timeout/row cap — §11c) but there is no
-  dedicated read-only Postgres role for it; it runs as the same app user.
+- Dashboard widget SQL is read-only-enforced several ways (parser + `READ
+  ONLY` transaction + statement timeout/row cap, executed as the
+  restricted `harness_reader` role over owner-scoped views — §11c). It is
+  a local single-user design and does not stop expensive reads.
 - RBAC is a 3-role matrix + ownership/visibility, not per-object ACLs —
   sufficient for this app's resource shapes, not a general permission
   system.
@@ -625,8 +631,35 @@ approval prompt, a curl transcript of the async pause/resume flow going
 and read back through `GET /incidents` before and after a full process
 restart, and a real (billing-error) response from an actual `POST` to
 `api.openai.com` proving the native tool-calling request/auth path is
-genuinely wired end to end. Live UI screenshots are not included here —
-the app is meant to be opened and driven directly.
+genuinely wired end to end. UI screenshots and short videos are in
+`docs/images/`, indexed in `docs/ui-evidence-and-demo-reset.md`, and shown
+below.
+
+## Screenshots and flows
+
+All captured from the live app (1440 px desktop, 390 px phone).
+
+| Approval bar | Session thread | Inspector |
+|---|---|---|
+| ![Approval](docs/images/chat-approval-1440.png) | ![Thread](docs/images/session-thread-1440.png) | ![Inspector](docs/images/chat-inspector-1440.png) |
+| **Workspace panel** | **Retrieval playground** | **Guardrails sandbox** |
+| ![Workspace](docs/images/chat-workspace-1440.png) | ![Playground](docs/images/kb-playground-1440.png) | ![Sandbox](docs/images/guardrails-sandbox-1440.png) |
+| **Agents** | **Skill routing tester** | **Eval run detail** |
+| ![Agents](docs/images/agents-1440.png) | ![Routing](docs/images/skills-routing-tester-1440.png) | ![Evals](docs/images/evals-run-detail-1440.png) |
+
+| Phone: new run | Phone: sessions | Phone: approval |
+|---|---|---|
+| ![New run 390](docs/images/chat-new-390.png) | ![Sessions 390](docs/images/sessions-390.png) | ![Approval 390](docs/images/chat-approval-390.png) |
+
+Flow videos (WebM; GitHub does not play WebM inline in a README, so these
+are links):
+
+- [Run, approval, workspace panel](docs/images/video-run-approval-to-workspace.webm)
+- [Sessions: bulk archive and Undo](docs/images/video-sessions-bulk-archive-undo.webm)
+- [Knowledge base: document sheet and playground](docs/images/video-kb-doc-sheet-and-playground.webm)
+
+The web console's own checks: `cd web; npm run lint; npm run typecheck; npm test; npm run build`.
+To reset the demo data between runs, see [`docs/ui-evidence-and-demo-reset.md`](docs/ui-evidence-and-demo-reset.md).
 
 ---
 Author: Phu Nguyen — HCMC, VN

@@ -2,7 +2,7 @@
 
 **Author:** Nguyen Quang Phu — HCMC, VN
 **Status:** Approved for build (2026-09-29)
-**Context:** STEMS VN AI Engineer take-home test, Part 2 (senior track). v1
+**Context:** Part 2 of the original brief (senior track). v1
 (real sklearn pipeline, leakage found+fixed, FastAPI scoring service, results
 dashboard) is built, tested (26/26), and verified live. This PRD applies the
 same product-thinking pass used for the Agent Harness: the app should read
@@ -23,9 +23,9 @@ file the user has to go find.
 
 - **Primary:** an MRO reliability engineer deciding whether to schedule an
   unscheduled inspection based on the model's output.
-- **Secondary:** the STEMS VN reviewer, evaluating data prep, leakage
+- **Secondary:** a reviewer, evaluating data prep, leakage
   prevention, modeling, evaluation, explainability, and production design —
-  the test's own stated rubric.
+  the original brief's stated rubric.
 
 ## 3. Baseline requirements (verbatim from the test — must never regress)
 

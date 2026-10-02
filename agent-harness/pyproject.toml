@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-harness"
 version = "0.1.0"
-description = "LLM-tool execution harness for an ops assistant (STEMS VN AI Engineer take-home test)"
+description = "LLM-tool execution harness for an ops assistant (with a web console, RBAC, MLflow tracing and an eval judge)"
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0,<3.0",

@@ -360,7 +360,7 @@ def refresh_widget(
 def preview_query(
     request: PreviewQueryRequest, user: CurrentUser = Depends(require("mutate_artifacts"))
 ) -> PreviewQueryResult:
-    """Validate + run a candidate widget query without saving anything —
+    """Validate + run a proposed widget query without saving anything —
     backs the widget editor's "Test" button. Requires the same
     `mutate_artifacts` permission as actually saving a widget (a viewer has
     no reason to probe arbitrary SQL against the database)."""

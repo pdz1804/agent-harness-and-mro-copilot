@@ -1,6 +1,6 @@
 """Probability calibration + calibration-quality metrics.
 
-Why: the take-home spec asks for "a risk score (probability)". Humans (and
+Why: the original brief asks for "a risk score (probability)". Humans (and
 later, the copilot) read that number as "this component has an X% chance of
 an unscheduled removal" -- an uncalibrated tree-ensemble score is a good
 *ranking* but a poor *probability* (HistGradientBoostingClassifier scores are

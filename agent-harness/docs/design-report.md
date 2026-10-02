@@ -1,6 +1,6 @@
 # Agent Harness — Design Report
 
-STEMS VN AI Engineer take-home test. Submission: `agent-harness/` in this
+Design write-up for `agent-harness/`, one of the two systems in this
 repository.
 
 ## 1. Approach
@@ -20,8 +20,8 @@ effort into the loop that surrounds it:
 - a structured, append-as-you-go JSONL trace per run,
 - deterministic tests that never touch a real model.
 
-The grading note in the test brief ("mock LLM client is the source of
-truth for grading") is taken literally: `ScriptedLLMClient` plays back a
+The original brief's note ("mock LLM client is the source of
+truth") is taken literally: `ScriptedLLMClient` plays back a
 fixed list of raw response dicts, so every test scenario (success,
 tool failure + retry, approval granted/denied, step/time limit,
 malformed response + recovery) is 100% reproducible and has zero network
@@ -416,7 +416,7 @@ filters and a per-run "Export" button hitting the new `GET
 /runs/{run_id}/export` endpoint (full run + event history as one JSON
 document — client-side downloaded as `run-<id>.json`). Useful both as a
 legitimate observability/audit feature and for attaching real evidence to
-the STEMS VN submission itself.
+a bug report or a review.
 
 **Known limitation: cold-start embedding latency.** The local embedding
 model (`sentence-transformers`) is lazy-loaded on first use. A real run

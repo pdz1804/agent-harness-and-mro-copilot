@@ -2,7 +2,7 @@
 
 <!-- impeccable:product-schema 1 -->
 
-> Labelled assumptions: no interactive interview was possible in this run (subagent, no question tool). Every fact below is taken from the repo, the coordinator's brief, or the earlier UX report. Anything inferred is marked **(inferred)**.
+> Labelled assumptions: no interactive Q&A was possible in this run (subagent, no question tool). Every fact below is taken from the repo, the coordinator's brief, or the earlier UX report. Anything inferred is marked **(inferred)**.
 
 ## Platform
 
@@ -16,7 +16,7 @@ React 18 + Vite + TypeScript, Recharts for charts, hand-written CSS with design 
 
 - **Reliability engineer.** On shift, scanning a ranked fleet. Needs to know which component to inspect first, why it scores high, and to act on the alert. Reads fast, trusts numbers, hates decoration.
 - **Maintenance planner.** Turns alerts into work orders, closes each with an outcome (confirmed fault, no fault found, not inspected), changes aircraft serviceability, looks up AMM/MEL procedures.
-- **Reviewer / interviewer (inferred: STEMS VN AI-engineer assessment).** Opens the app cold. Wants to see in one minute: is the target met, is there leakage, can I probe it (explain, what-if, drift, retrain gate), is there a production story. Judges craft as well as function.
+- **Reviewer (inferred).** Opens the app cold. Wants to see in one minute: is the target met, is there leakage, can I probe it (explain, what-if, drift, retrain gate), is there a production story. Judges craft as well as function.
 
 ## Product Purpose
 

@@ -12,7 +12,7 @@ component over time), and this module defends against both:
    also keeps sibling components of the same aircraft -- which share
    utilization intensity, region, aircraft type -- together, a
    stricter boundary than splitting by ``component_id`` alone; see
-   the take-home spec, which explicitly allows either).
+   the original brief, which explicitly allows either).
 
 2. Time leakage -- training on aircraft that entered service (and so
    started accumulating cycles/history) LATER than the aircraft used

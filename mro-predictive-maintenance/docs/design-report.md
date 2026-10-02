@@ -1,6 +1,6 @@
 # Aircraft Component Predictive Maintenance -- Design Report
 
-STEMS VN AI Engineer take-home, senior track. Predicts whether an aircraft
+Senior-track part of the original brief. Predicts whether an aircraft
 component will need an **unscheduled removal within the next 30 flight
 cycles**. No real dataset was provided, so this POC also builds and
 documents a synthetic one. All numbers in this report are taken verbatim
@@ -143,7 +143,7 @@ Actual split (seed 42): train 18,967 rows / 156 aircraft, val 5,083 rows /
 
 Both are pip-installable with no GPU/CUDA. `xgboost` was evaluated
 (installs cleanly in this environment) but not used, to keep the shipped
-dependency list inside plain scikit-learn per the take-home's design
+dependency list inside plain scikit-learn per the original brief's design
 guidance -- HGB is scikit-learn's native gradient-boosting implementation
 and is the explicitly allowed substitute. **Imbalance choice:** reweighting
 (`class_weight="balanced"`) was used instead of oversampling/SMOTE because
@@ -315,7 +315,7 @@ applicable to that component type) and randomly (2% simulated dropout).
 `LogisticRegression` imputes with the training-fold median (fit inside the
 pipeline, so no leakage); `HistGradientBoostingClassifier` handles NaN
 natively per-feature at each split, which is one practical reason it's an
-attractive production candidate despite its slightly worse test recall at
+attractive production option despite its slightly worse test recall at
 the chosen threshold in this run -- it needs no separate imputation logic
 to maintain. In production, a spike in a feature's missing-rate should
 itself be monitored (see Drift below) since it often signals a sensor or
@@ -437,7 +437,7 @@ threshold is **0.01** — a fragile operating point: it sits just above
 the score floor, so small shifts in the score distribution (exactly what
 section 8.4's drift monitor watches for) can swing alert volume sharply.
 This is disclosed, not hidden, in the model card (`threshold_policies`
-carries all three candidate operating points side by side so the
+carries all three operating-point options side by side so the
 fragility is visible, not just the one served number).
 
 ### 8.3 Rule baselines and calibration
@@ -525,7 +525,7 @@ that actually exists (grounding guardrail test), and prompt-injection text
 embedded in KB content or user input does not trigger tool calls
 (`tests/test_copilot_guardrails.py`).
 
-### 8.7 What an interviewer would probe — and what's still missing
+### 8.7 What a reviewer would probe — and what's still missing
 
 Likely probes: why PR-AUC over ROC-AUC on an imbalanced set; why the
 served realistic threshold (0.01) is fragile and what operational

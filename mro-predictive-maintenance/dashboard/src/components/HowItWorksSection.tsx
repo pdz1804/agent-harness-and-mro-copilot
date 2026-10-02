@@ -28,7 +28,7 @@ export function HowItWorksSection({ data }: HowItWorksSectionProps) {
       body: (
         <>
           <p>
-            No real fleet dataset was provided for this take-home, so{" "}
+            No real fleet dataset was provided for this project, so{" "}
             <code>data/generate_dataset.py</code> builds one: {formatNumber(dataset.aircraft)}{" "}
             aircraft &times; 6 component types ={" "}
             {formatNumber(dataset.components_total)} components, observed from each

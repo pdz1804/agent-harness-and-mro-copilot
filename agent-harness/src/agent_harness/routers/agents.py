@@ -205,7 +205,7 @@ def agent_starter_prompts(agent_id: str, user: CurrentUser = Depends(current_use
     """Starter prompts for the chat empty state: the `examples` of the skills
     this agent can actually use for the caller - the assigned skills
     (`assigned`), or every readable enabled skill within the agent's
-    candidate list (`auto`) - restricted to skills with at least one tool the
+    eligible list (`auto`) - restricted to skills with at least one tool the
     caller's role may use and that is enabled in Integrations (a viewer is
     not offered 'build me a dashboard'). Interleaved across skills for
     variety, at most 6."""
@@ -314,7 +314,7 @@ def preview_route(
 ) -> PreviewRouteResponse:
     """Dry-run the `auto`-mode router for this agent against `objective`,
     with no run/session created — lets an author test their skill
-    candidate list before saving. Viewer allowed (read-only, no
+    eligible list before saving. Viewer allowed (read-only, no
     persistence); 404 if the agent isn't readable; 422 if the agent isn't in
     `auto` mode."""
     agent = _get_readable_or_404(agent_id, user)
@@ -423,7 +423,7 @@ class RouteTestResult(BaseModel):
 @router.post("/skills/route-test", response_model=RouteTestResult)
 def skill_route_test(request: RouteTestRequest, user: CurrentUser = Depends(current_user)) -> RouteTestResult:
     """Which skill would the router pick for this text? Runs the REAL auto-mode
-    router (the same prompt, candidate list and confidence threshold a run uses)
+    router (the same prompt, eligible list and confidence threshold a run uses)
     over the skills the caller can read, without creating a run or session, and
     returns the pick with its rationale and confidence. A leading `/slug` is
     reported as a forced slash invocation, as in a real run."""

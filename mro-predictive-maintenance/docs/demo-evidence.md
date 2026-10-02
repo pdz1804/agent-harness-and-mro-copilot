@@ -21,7 +21,7 @@ Cycle snapshots:       26565
 Fault code events:     11201
 Maintenance events:    27535
 Positive rate:         777/26565 = 2.925%
-Wrote CSVs to D:\Personal\JobTests\stems-vn-ai-engineer-test\mro-predictive-maintenance\data\raw
+Wrote CSVs to <repo>\mro-predictive-maintenance\data\raw
 ```
 
 **What this shows:** 260 synthetic aircraft x 6 component types = 1,560
@@ -30,7 +30,7 @@ removal (the event of interest), 432 were caught early by scheduled
 maintenance (hard negatives -- same wear signal, different outcome), and
 590 simply outlived the observation window. Across all 26,565 individual
 inspection-point rows, 777 are positive-labeled ("removal within 30
-cycles") -- a 2.925% positive rate, matching the take-home's "~2%" severe-
+cycles") -- a 2.925% positive rate, matching the brief's "~2%" severe-
 imbalance requirement. The label distribution is unchanged by the leakage
 fix (only how maintenance-history *features* are computed changed, not
 which rows are positive). This run is deterministic: re-running with the
@@ -71,7 +71,7 @@ hist_gradient_boosting     0.998592    0.968171      0.999598     0.973269      
 
 Primary model for explainability artifacts: hist_gradient_boosting
 
-Wrote reports to D:\Personal\JobTests\stems-vn-ai-engineer-test\mro-predictive-maintenance\reports
+Wrote reports to <repo>\mro-predictive-maintenance\reports
 ```
 
 **What this shows, in plain terms:** the fleet was split so that 156
@@ -80,7 +80,7 @@ picked the alert threshold, and a completely different 52 aircraft
 (most-recently-delivered, never seen before) were the final exam. **The
 honest, post-fix headline result: `hist_gradient_boosting` caught 23 of 28
 real unscheduled removals in that final exam (82.1% recall) while raising
-only 0.91 false alerts per 100 components -- both inside the take-home's
+only 0.91 false alerts per 100 components -- both inside the brief's
 target of >=80% recall and <=5 alerts per 100.** `logistic_regression`
 looked strong on validation but fell just short on the actual held-out
 test aircraft (71.4% recall) -- reported as-is rather than re-picking a

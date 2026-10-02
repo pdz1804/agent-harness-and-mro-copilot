@@ -34,7 +34,7 @@ distinct from an individual-component PdM risk alert:
 - **Fleet-level alert** (from the reliability program): "this component type is
   failing more often across the fleet than its historical baseline" — triggers a
   reliability review, potential root-cause investigation, or a service bulletin
-  candidate in a real program.
+  proposal in a real program.
 
 ## Use in this system
 

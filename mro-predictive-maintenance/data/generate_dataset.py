@@ -1,7 +1,7 @@
 """Synthetic dataset generator for the aircraft component predictive-
 maintenance proof of concept.
 
-No real MRO dataset was provided for this take-home test, so this script
+No real MRO dataset was provided for this project, so this script
 builds a plausible, fully-documented synthetic one. It is deterministic:
 running it twice with the same ``--seed`` produces byte-identical CSVs
 (verified by ``tests/test_dataset_generation.py``).

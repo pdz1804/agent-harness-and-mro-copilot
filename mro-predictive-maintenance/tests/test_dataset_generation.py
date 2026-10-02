@@ -32,7 +32,7 @@ def test_different_seeds_produce_different_data():
 def test_positive_rate_is_in_severe_imbalance_range():
     _, _, snapshots, _, _ = generate(seed=42, n_aircraft=120)
     positive_rate = snapshots["label"].mean()
-    # "~2%" per the take-home spec; allow a documented band rather than
+    # "~2%" per the original brief; allow a documented band rather than
     # pinning an exact number that a parameter tweak would break.
     assert 0.005 <= positive_rate <= 0.08, f"positive rate {positive_rate:.4f} outside expected band"
 

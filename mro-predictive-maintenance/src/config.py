@@ -29,7 +29,7 @@ MAINTENANCE_EVENTS_CSV = RAW_DIR / "maintenance_events.csv"
 # Model-ready table (written by src/features.py).
 MODEL_TABLE_CSV = PROCESSED_DIR / "model_table.csv"
 
-# Prediction horizon, in flight cycles, per the take-home spec.
+# Prediction horizon, in flight cycles, per the original brief.
 PREDICTION_HORIZON_CYCLES = 30
 
 # Routine scheduled-check interval, in flight cycles. Single source of truth
@@ -55,7 +55,7 @@ WATCH_FLOOR = 0.5
 
 # Illustrative cost defaults (USD) for the min_expected_cost threshold policy
 # (src/evaluation.py). These are NOT calibrated against any real MRO's
-# finance data -- there was none available for this take-home -- and are
+# finance data -- there was none available for this project -- and are
 # labelled "illustrative" everywhere they are surfaced (model card, dashboard)
 # per an explicit coordinator decision (see plan.md unresolved questions).
 # They only change WHICH threshold min_expected_cost recommends; they are

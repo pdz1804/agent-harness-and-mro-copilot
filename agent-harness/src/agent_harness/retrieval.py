@@ -71,12 +71,12 @@ def _chunk(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> list[str]:
     chunks: list[str] = []
     current = ""
     for para in paragraphs:
-        candidate = f"{current}\n\n{para}" if current else para
-        if len(candidate) > max_chars and current:
+        grown = f"{current}\n\n{para}" if current else para
+        if len(grown) > max_chars and current:
             chunks.append(current)
             current = para
         else:
-            current = candidate
+            current = grown
     if current:
         chunks.append(current)
     return chunks

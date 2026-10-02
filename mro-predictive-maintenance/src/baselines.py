@@ -1,6 +1,6 @@
 """Naive, non-ML operating-point baselines.
 
-A senior review of any ML take-home asks "would a simple rule already used
+A senior review of any ML project asks "would a simple rule already used
 by reliability programs today get you most of the way there?" These two
 baselines are the rules an MRO reliability engineer could compute today
 without a model, and are put through the exact same threshold-selection /
@@ -20,7 +20,7 @@ import pandas as pd
 # data/generate_dataset.py on purpose: the age-rule baseline models what a
 # reliability engineer would use in practice -- a *published* MTBUR/mean-life
 # figure per part number, not a peek at the generator's internal RNG
-# parameters. Using the same numbers here is a modeling choice (the take-home
+# parameters. Using the same numbers here is a modeling choice (the original brief
 # has no independent real-world source), not a data leak: this baseline uses
 # only `component_type` and `component_age_cycles`, both legitimately
 # available at prediction time.

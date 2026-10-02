@@ -10,18 +10,27 @@ rationale, model comparison, threshold selection, explanations, deployment/
 monitoring/retraining plan, cold-start/missing-data/drift handling,
 limitations, future work) and `docs/demo-evidence.md` for real captured
 output from an actual run, so the result can be reviewed without executing
-anything.
+anything. The repository-level overview, requirements coverage and run
+guide are in the [root README](../README.md).
+
+![Control desk overview](docs/images/overview-1440.png)
 
 ## Setup
+
+Prerequisites: Python 3.10 or newer (developed and tested on 3.11) and, for
+the dashboard, Node.js 18 or newer.
 
 ```powershell
 cd mro-predictive-maintenance
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-(A `.venv/` is already populated in this deliverable directory if you'd
-rather use it directly: `.\.venv\Scripts\python.exe ...`.)
+macOS / Linux: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
+
+The commands below use `.\.venv\Scripts\python.exe`; with the venv active you
+can use plain `python` (or `python3`) instead.
 
 ## Run it
 
@@ -63,65 +72,51 @@ src/evaluation.py          metrics, threshold sweep, operating-point selection
 src/explainability.py      permutation importance + SHAP (with a documented fallback)
 src/pipeline.py            end-to-end training/eval CLI (`python -m src.pipeline[--retrain]`)
 src/service/               FastAPI live scoring service (see "Live scoring service" below)
-tests/                     pytest suite (dataset determinism, leakage, model smoke, service tests)
+src/ops/, src/copilot/     alerts / work orders store and the approval-gated maintenance copilot
+src/monitoring.py          PSI drift monitoring and the retrain gate
+kb/                        fictional maintenance procedures (copilot knowledge base)
+scripts/reset_demo_data.py return demo data to the seeded state
+tests/                     pytest suite (232 tests: dataset determinism, leakage, model, service, ops, copilot)
 docs/design-report.md      the full design write-up
 docs/demo-evidence.md      real captured console output + example explanations
 reports/                   generated metrics/importance/explanation artifacts
 models/                    fitted model artifacts (joblib)
-dashboard/                 static results UI reading the reports/ artifacts (see "Dashboard" below)
+dashboard/                 React + TypeScript dashboard (see "Dashboard" below)
 ```
 
 ## Dashboard
 
-A static results dashboard (`dashboard/`) turns the artifacts in `reports/`
-into an actual UI -- overview stats, model comparison with the validation
-threshold-sweep curve, feature-importance charts, and the high-risk
-leaderboard. It reads a derived JSON file built from the real
-`reports/*.csv`, `reports/*.md`, and `docs/*.md` files above -- nothing in
-the UI is hand-typed. No backend is required; it's a static Vite/React
-build.
+`dashboard/` is a React + TypeScript app (Vite). It combines two data
+sources:
+
+- **Offline artifacts.** `dashboard/scripts/build_dashboard_data.py` reads the
+  real `reports/*.csv`, `reports/*.md` and `docs/*.md` files and writes
+  `dashboard/src/data/dashboard_data.json` (committed). Nothing in the UI is
+  hand-typed. Re-run the script after re-running the pipeline.
+- **The live scoring service** on `:8100` for fleet, alerts, work orders,
+  copilot, monitoring and what-if. If the service is unreachable the page
+  shows a banner with the expected URL and the command to start it, rather
+  than a blank screen.
 
 ```powershell
-# 1. Regenerate the dashboard's data file from the real reports/ artifacts
-#    (safe to re-run any time the pipeline above is re-run).
+# Optional: regenerate the dashboard data file from reports/
 .\.venv\Scripts\python.exe dashboard\scripts\build_dashboard_data.py
 
-# 2. Install frontend dependencies (first time only).
 cd dashboard
-npm install
-
-# 3a. Dev server with hot reload:
-npm run dev
-# -> opens on http://localhost:5173/
-
-# 3b. OR production build + static preview:
-npm run build
-npm run preview -- --port 4173
-# -> open http://localhost:4173/
+npm install                 # first time only
+npm run dev                 # http://localhost:5173/  (hot reload)
+# or a production build:
+npm run build               # type check + Vite build
+npm run preview -- --port 4173   # http://localhost:4173/
 ```
 
-`dashboard/scripts/build_dashboard_data.py` writes
-`dashboard/src/data/dashboard_data.json`; every figure shown in the UI
-traces back to a specific `reports/`/`docs/` file read by that script (see
-the script's docstring). Layout: `dashboard/src/components/` (Overview,
-model comparison + threshold-sweep chart, feature importance, high-risk
-leaderboard), `dashboard/src/types.ts` (mirrors the JSON schema),
-`dashboard/src/lib/format.ts` (display formatting only, no computed
-metrics).
-
-The dashboard has three tabs: **Offline results** (the static sections
-above, unchanged), **Live scoring** (pick a real fleet component or edit
-feature values, `POST /score` live, shows the score/alert/SHAP bars), and
-**Fleet risk** (`GET /fleet/top-risk`, live-scored table). The latter two
-require the scoring service running -- see "Live scoring service" below;
-if it's unreachable the page shows a banner with the expected URL and the
-command to start it, rather than a blank screen.
+See "Dashboard tour" below for every page and the endpoint behind it.
 
 ## Live scoring service
 
 `src/service/` is a FastAPI app that serves the **real, currently-trained**
 model live -- it does not read/echo `reports/`, it loads
-`models/logistic_regression.joblib` and re-runs the exact same
+the primary model (`models/hist_gradient_boosting.joblib`, `src/config.PRIMARY_MODEL_ID`) and re-runs the exact same
 preprocessing + SHAP code paths used at training time (`src/modeling.py`,
 `src/explainability.py`) on each request.
 
@@ -143,9 +138,8 @@ transcripts):
 | `GET /fleet/components?offset=&limit=&band=&component_type=&q=&sort=&dir=` | the same ranking for the whole fleet, paginated server-side; each row carries its global `rank` and a `band` (`alert` at/over the threshold, `watch` at/over `WATCH_FLOOR` = 0.5, else `normal`); `counts` are whole-fleet per band |
 
 Missing numeric features are accepted as `null` and handled exactly like
-training (median-imputed for `logistic_regression`, routed natively for
-`hist_gradient_boosting` if that model is ever selected as primary --
-`src/config.PRIMARY_MODEL_ID`). Categorical fields are required; an
+training (routed natively by `hist_gradient_boosting`, the served model;
+median-imputed for `logistic_regression`). Categorical fields are required; an
 incomplete or unknown-field payload is rejected with `422` by pydantic
 before it reaches the model.
 
@@ -189,10 +183,11 @@ byte-for-byte (`--profile v1`: HGB threshold 0.9405, test recall 0.8214 /
 
 ```powershell
 cd mro-predictive-maintenance
+# The data, models and reports are committed; the next three lines only rebuild them.
 .\.venv\Scripts\python.exe data\generate_dataset.py --seed 42
 .\.venv\Scripts\python.exe -m src.pipeline                      # profile=v1 (default)
 .\.venv\Scripts\python.exe -m src.pipeline --profile realistic  # the stress-test profile
-.\.venv\Scripts\python.exe -m uvicorn src.service.app:app --port 8100   # do NOT use 8000/8100 for ad-hoc testing -- 8100 is the one fixed dev port; use 8101 for any extra/live verification server
+.\.venv\Scripts\python.exe -m uvicorn src.service.app:app --port 8100   # 8100 is the port the dashboard expects; use another port (for example 8101) for extra ad-hoc servers
 cd dashboard; npm install; npm run dev   # -> http://localhost:5173/
 ```
 
@@ -200,6 +195,10 @@ The copilot runs **offline-scripted by default** (deterministic, no network,
 no API key). Export `OPENAI_API_KEY` before starting the service to switch
 it to a real OpenAI backend (`gpt-4o-mini`); `GET /copilot/meta` reports
 `mode: "offline-scripted" | "openai"`.
+
+On first start `data/ops.db` has no alerts. Open the Fleet page and click
+**Scan fleet now** (or `POST /ops/fleet-scan`) to score the fleet and raise
+the first alerts.
 
 ### Architecture
 
@@ -281,7 +280,9 @@ not real authentication; see Limitations.
 | Var | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///data/ops.db` | ops store (alerts/work orders/predictions/copilot runs) |
-| `OPENAI_API_KEY` | unset | switches the copilot from offline-scripted to real OpenAI (`gpt-4o-mini`) |
+| `OPENAI_API_KEY` | unset | switches the copilot from offline-scripted to real OpenAI |
+| `OPENAI_MODEL` | `gpt-4o-mini` | chat model used when the key is set |
+| `MLFLOW_TRACKING_URI` | local `mlruns/` file store | override the MLflow tracking location |
 | `SERVICE_CORS_ORIGINS` | dashboard dev/preview ports | CORS allow-list for the dashboard |
 | `VITE_SERVICE_BASE_URL` | `http://localhost:8100` | dashboard → service base URL |
 | `MLFLOW_DISABLE_AGENT_HINT` | unset | silence MLflow's assistant-skill hint in test output |
@@ -294,6 +295,9 @@ $env:OPENAI_API_KEY = "<key>"; .\.venv\Scripts\python.exe -m pytest -q -m live  
 .\.venv\Scripts\python.exe -m pytest -q -m e2e                 # scripted end-to-end scenario only
 cd dashboard; npm run build; npm test -- --run
 ```
+
+Current results: 232 backend tests pass (3 `live` tests are deselected by
+default) and 213 dashboard tests pass (31 files); the dashboard build passes.
 
 ### Reset the demo data
 
@@ -327,7 +331,7 @@ phone). Files are in `docs/images/`.
 |---|---|---|
 | ![Overview 390](docs/images/overview-390.png) | ![Fleet 390](docs/images/fleet-components-390.png) | ![Alert sheet 390](docs/images/alert-detail-sheet-390.png) |
 
-Hero flows (WebM):
+Hero flows (WebM; GitHub does not play WebM inline in a README, so these are links):
 
 - [Fleet → component → alert, acknowledge, then Undo](docs/images/flow-fleet-alert-acknowledge-undo.webm)
 - [Acknowledge, raise a work order through the copilot, approve it](docs/images/flow-copilot-raise-work-order-approval.webm)
@@ -350,17 +354,22 @@ as a manually raised work order does.
   the HITL plumbing deterministically but isn't a quality bar on language
   understanding the way the real OpenAI mode is.
 - Synthetic dataset only — see `docs/design-report.md` for why v1's profile
-  was too easy and what the `realistic` profile does differently.
+  was too easy and what the `realistic` profile does differently. The 28 test
+  positives make the headline recall (82.1%, 23 of 28) statistically loose.
+- Not built: an aircraft-type filter on Fleet, a "New work order" form
+  (raising stays approval-gated through the copilot), and "Alerts by
+  component type" on Overview.
 
 ## Dependencies
 
 `requirements.txt`: pandas, numpy, scikit-learn, matplotlib, scipy, joblib,
-shap, tabulate, pytest, fastapi, uvicorn, httpx. All pip-installable, no
+shap, tabulate, pytest, fastapi, uvicorn, httpx, sqlalchemy, rank-bm25,
+pyyaml, pydantic-ai (pinned), openai, mlflow. All pip-installable, no
 GPU/CUDA required. `xgboost` was evaluated but not used --
 `HistGradientBoostingClassifier` (plain scikit-learn) was preferred to keep
-the dependency footprint minimal, as the design brief asked; see
+the dependency footprint minimal, as the original brief asked; see
 `docs/design-report.md`. `dashboard/`'s frontend deps (react, recharts,
-vite) are separate, in `dashboard/package.json`.
+vite, lucide-react) are separate, in `dashboard/package.json`.
 
 ---
 Author: Phu Nguyen — HCMC, VN

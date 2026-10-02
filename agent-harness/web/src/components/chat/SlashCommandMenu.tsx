@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react'
 import type { SkillCommand } from '../../lib/api-types'
 
 /** Fuzzy-ish filter: every character of `query` must appear in order inside
- * the candidate string (case-insensitive) — cheap, dependency-free, good
+ * the target string (case-insensitive) — cheap, dependency-free, good
  * enough for a handful of skill slugs. */
-function fuzzyMatch(candidate: string, query: string): boolean {
+function fuzzyMatch(target: string, query: string): boolean {
   if (!query) return true
-  const c = candidate.toLowerCase()
+  const c = target.toLowerCase()
   let i = 0
   for (const ch of query.toLowerCase()) {
     i = c.indexOf(ch, i)

@@ -2,7 +2,7 @@
 
 **Author:** Nguyen Quang Phu — HCMC, VN
 **Status:** Approved for build (2026-09-29)
-**Context:** STEMS VN AI Engineer take-home test, Part 1 (required). v1 (custom
+**Context:** Part 1 of the original brief (required). v1 (custom
 loop, OpenAI SDK direct, SQLite, SSE) is built, tested (59/59), and verified
 live. This PRD defines v2: a real agent framework, real observability/eval
 tooling, real relational persistence, and an operator platform UI around the
@@ -11,7 +11,7 @@ seed data) stays real.
 
 ## 1. Problem & goal
 
-The take-home asks for an "Agent Harness for an operations assistant": an
+The original brief asks for an "Agent Harness for an operations assistant": an
 LLM-tool execution loop with state, validation, safety controls, and tests.
 v1 satisfies that literally. v2's goal is to demonstrate how a senior AI
 engineer would actually ship this as a small internal platform an ops team
@@ -24,7 +24,7 @@ data (KB corpus, service registry) is mock.
 
 - **Primary:** an on-call/ops engineer who types an objective and either
   watches the agent investigate, or gets asked to approve a risky action.
-- **Secondary:** the STEMS VN reviewer, who needs to understand the design
+- **Secondary:** a reviewer, who needs to understand the design
   and verify it works without necessarily running it themselves.
 
 ## 3. Baseline requirements (verbatim from the test — must never regress)

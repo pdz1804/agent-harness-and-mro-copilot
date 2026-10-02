@@ -1,6 +1,6 @@
 """Metrics, threshold sweep, and operating-point selection.
 
-Operating point: the take-home asks for recall >= 0.80 (catch at least
+Operating point: the original brief asks for recall >= 0.80 (catch at least
 80% of real unscheduled removals) while alerting on no more than 5 per
 100 active components (an "alert" = a predicted-positive row). The
 threshold is chosen on the VALIDATION split (never on test, to avoid

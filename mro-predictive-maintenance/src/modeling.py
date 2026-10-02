@@ -1,6 +1,6 @@
 """Preprocessing + the two compared models.
 
-Model choice (per the take-home's design guidance -- avoid heavy/exotic
+Model choice (per the original brief's design guidance -- avoid heavy/exotic
 deps, keep everything pip-installable without GPU/CUDA):
 
 - LogisticRegression: linear baseline, fully interpretable via

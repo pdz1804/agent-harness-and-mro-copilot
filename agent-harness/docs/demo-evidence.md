@@ -14,9 +14,9 @@ Command: `.venv\Scripts\python.exe -m pytest -v`
 
 ```text
 ============================= test session starts =============================
-platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0 -- D:\Personal\JobTests\stems-vn-ai-engineer-test\agent-harness\.venv\Scripts\python.exe
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0 -- <repo>\agent-harness\.venv\Scripts\python.exe
 cachedir: .pytest_cache
-rootdir: D:\Personal\JobTests\stems-vn-ai-engineer-test\agent-harness
+rootdir: <repo>\agent-harness
 configfile: pyproject.toml
 testpaths: tests
 plugins: anyio-4.15.1
@@ -48,7 +48,7 @@ tests/test_tool_schema_validation.py::test_unknown_tool_name_is_recorded_and_doe
 
 ============================== warnings summary ===============================
 .venv\Lib\site-packages\fastapi\testclient.py:1
-  D:\Personal\JobTests\stems-vn-ai-engineer-test\agent-harness\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  <repo>\agent-harness\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
@@ -145,9 +145,9 @@ Command: `.venv\Scripts\python.exe -m pytest -v tests/test_api_async_runs.py`
 
 ```text
 ============================= test session starts =============================
-platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0 -- D:\Personal\JobTests\stems-vn-ai-engineer-test\agent-harness\.venv\Scripts\python.exe
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0 -- <repo>\agent-harness\.venv\Scripts\python.exe
 cachedir: .pytest_cache
-rootdir: D:\Personal\JobTests\stems-vn-ai-engineer-test\agent-harness
+rootdir: <repo>\agent-harness
 configfile: pyproject.toml
 plugins: anyio-4.15.1
 collecting ... collected 8 items
@@ -163,7 +163,7 @@ tests/test_api_async_runs.py::test_list_runs_includes_started_run PASSED [100%]
 
 ============================== warnings summary ===============================
 .venv\Lib\site-packages\fastapi\testclient.py:1
-  D:\Personal\JobTests\stems-vn-ai-engineer-test\agent-harness\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  <repo>\agent-harness\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
