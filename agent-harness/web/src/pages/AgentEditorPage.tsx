@@ -327,7 +327,7 @@ function AgentEditorForm({ agent: initialAgent, prompts, skills, tools, onClose 
       />
 
       {saved && (
-        <div role="tabpanel" aria-label="Test chat" className={tab === 'test' ? 'mx-auto max-w-3xl' : 'hidden'}>
+        <div role="tabpanel" aria-label="Test chat" className={tab === 'test' ? 'w-full' : 'hidden'}>
           <p className="mb-3 text-xs text-zinc-600">
             {dirty ? 'Tests the saved agent. Your unsaved edits on the Settings tab are not applied yet.' : 'Tests the saved agent. Every message is a real run, visible in Sessions.'}
           </p>
@@ -336,7 +336,7 @@ function AgentEditorForm({ agent: initialAgent, prompts, skills, tools, onClose 
       )}
 
       {saved && tab === 'usage' && (
-        <div role="tabpanel" aria-label="Usage" className="mx-auto max-w-3xl">
+        <div role="tabpanel" aria-label="Usage" className="w-full">
           <AgentUsagePanel agentId={saved.id} />
         </div>
       )}

@@ -98,7 +98,7 @@ export function NewRunPage() {
   }
 
   return (
-    <div className="relative mx-auto flex min-h-full max-w-[47.5rem] flex-col justify-center py-6">
+    <div className="relative mx-auto flex min-h-full max-w-[72rem] flex-col justify-center py-6">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 -z-0 mx-auto h-72 max-w-xl rounded-full bg-[radial-gradient(closest-side,oklch(0.608_0.192_280/0.10),transparent)] blur-2xl"
@@ -123,7 +123,7 @@ export function NewRunPage() {
             ))}
           </ul>
         ) : (
-          <p className="mx-auto mt-2 max-w-md text-[15px] text-zinc-500">
+          <p className="mx-auto mt-2 max-w-2xl text-[15px] text-zinc-500">
             Give the agent a task. It picks the tools, asks before any write, and streams its answer live.
           </p>
         )}

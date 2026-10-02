@@ -368,7 +368,7 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
             className="h-full overflow-y-auto overscroll-contain px-4 py-6 md:px-8"
             style={{ overflowAnchor: following ? 'none' : 'auto' }}
           >
-            <div ref={contentRef} className="mx-auto max-w-[47.5rem] space-y-10 pb-6">
+            <div ref={contentRef} className="mx-auto max-w-[72rem] space-y-10 pb-6">
               {error && <ErrorBanner message={error} />}
               {loading && !snapshot && (
                 <div className="space-y-4">
@@ -453,7 +453,7 @@ export function RunPage({ runIdOverride }: { runIdOverride?: string } = {}) {
             {snapshot.status !== 'pending_approval' && (
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-[var(--color-sheet)] to-transparent" />
             )}
-            <div className="mx-auto max-w-[47.5rem]">
+            <div className="mx-auto max-w-[72rem]">
               {actionError && (
                 <div className="mb-2">
                   <ErrorBanner message={actionError} />

@@ -244,7 +244,7 @@ export function ChatTurn({
         {(snapshot.final_answer || isStreamingFinalAnswer) && (
           <div className="min-w-0 pt-1">
             <div
-              className="max-w-[70ch] [overflow-wrap:anywhere]"
+              className="[overflow-wrap:anywhere]"
               aria-live={isStreamingFinalAnswer ? 'off' : 'polite'}
               aria-busy={isStreamingFinalAnswer}
             >

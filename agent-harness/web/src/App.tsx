@@ -67,7 +67,7 @@ function SessionThreadRoute() {
   }
   if (!state || state.sessionId !== sessionId || !state.runId) {
     return (
-      <div className="mx-auto max-w-[47.5rem]">
+      <div className="mx-auto max-w-[72rem]">
         <TimelineSkeleton />
       </div>
     )

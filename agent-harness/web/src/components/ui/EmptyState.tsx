@@ -33,9 +33,9 @@ export function EmptyState({ icon, title, description, action, example, size = '
         {icon}
       </div>
       <p className="relative font-[family-name:var(--font-display)] text-base font-semibold tracking-[-0.01em] text-zinc-950">{title}</p>
-      <div className="relative max-w-sm text-sm text-zinc-500">{description}</div>
+      <div className="relative max-w-xl text-sm text-zinc-500">{description}</div>
       {action && <div className="relative mt-1">{action}</div>}
-      {example && <div className="relative max-w-sm text-xs text-zinc-500">{example}</div>}
+      {example && <div className="relative max-w-xl text-xs text-zinc-500">{example}</div>}
     </div>
   )
 }
@@ -68,7 +68,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   return (
     <div role="alert" className="flex flex-col items-center gap-2 rounded-[14px] bg-rose-50/70 px-6 py-10 text-center ring-1 ring-rose-200 ring-inset">
       <WarningCircle size={20} weight="fill" className="text-rose-600" />
-      <p className="max-w-md text-sm text-rose-900 [overflow-wrap:anywhere]">{message}</p>
+      <p className="max-w-xl text-sm text-rose-900 [overflow-wrap:anywhere]">{message}</p>
       {onRetry && (
         <Button variant="secondary" size="sm" onClick={onRetry}>
           Try again
