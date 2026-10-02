@@ -19,6 +19,7 @@ reaches a pending approval with a bogus reference.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, ContextManager, Optional
@@ -397,12 +398,14 @@ def create_work_order(ctx: RunContext[CopilotDeps], aircraft_id: str, component_
         })
 
     with ctx.deps.ops_conn_factory() as conn:
+        alert_id, alert_source = _resolve_alert_for(conn, ctx, component_id)
         result = ops_service.create_work_order(
             conn, aircraft_id=aircraft_id, component_id=component_id,
             task_ref=task_ref, priority=priority, created_by="copilot",
             approved_by=ctx.deps.actor, notes=justification,
-            alert_id=_run_alert_for(conn, ctx.deps.alert_id, component_id),
+            alert_id=alert_id,
         )
+    result["alert_link"] = alert_source
     return result
 
 
@@ -413,6 +416,45 @@ def _run_alert_for(conn, alert_id: Optional[int], component_id: str) -> Optional
         return None
     row = conn.execute(select(alerts.c.component_id).where(alerts.c.id == alert_id)).first()
     return alert_id if row is not None and row[0] == component_id else None
+
+
+_ALERT_REF_RE = re.compile(r"(?:alert\s*(?:id\s*)?#?\s*|#)(\d+)", re.IGNORECASE)
+_LINKABLE_STATUSES = ("open", "acknowledged")
+
+
+def _user_text(ctx) -> str:
+    """The run's user prompt (the first user turn survives an approval resume)."""
+    for message in getattr(ctx, "messages", None) or []:
+        for part in getattr(message, "parts", []):
+            if getattr(part, "part_kind", None) == "user-prompt" and isinstance(part.content, str):
+                return part.content
+    prompt = getattr(ctx, "prompt", None)
+    return prompt if isinstance(prompt, str) else ""
+
+
+def _resolve_alert_for(conn, ctx, component_id: str) -> tuple[Optional[int], Optional[str]]:
+    """Pick the alert a copilot work order should be linked to.
+
+    Order: the run's own alert (``"run"``); an alert id the user named in the
+    prompt that belongs to this component (``"prompt"``); otherwise the
+    component's single open/acknowledged alert (``"inferred"``). Returns
+    ``(None, None)`` when nothing unambiguous matches -- it never guesses
+    between several open alerts.
+    """
+    run_alert = _run_alert_for(conn, ctx.deps.alert_id, component_id)
+    if run_alert is not None:
+        return run_alert, "run"
+    rows = conn.execute(
+        select(alerts.c.id, alerts.c.status).where(alerts.c.component_id == component_id)
+    ).all()
+    named = {int(m) for m in _ALERT_REF_RE.findall(_user_text(ctx))}
+    for alert_id, _status in rows:
+        if alert_id in named:
+            return int(alert_id), "prompt"
+    linkable = [int(a) for a, status in rows if status in _LINKABLE_STATUSES]
+    if len(linkable) == 1:
+        return linkable[0], "inferred"
+    return None, None
 
 
 def recommend_aircraft_status(ctx: RunContext[CopilotDeps], aircraft_id: str, status: str,

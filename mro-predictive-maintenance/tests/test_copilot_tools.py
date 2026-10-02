@@ -221,11 +221,11 @@ def test_acknowledge_alert_invalid_transition_raises_model_retry(deps):
         copilot_tools.acknowledge_alert(_ctx(deps), alert_id=999999, note="test")
 
 
-def _seed_alert(engine, component_id: str, aircraft_id: str) -> int:
+def _seed_alert(engine, component_id: str, aircraft_id: str, window_key: str = "W1") -> int:
     with engine.connect() as conn:
         res = conn.execute(ops_db.alerts.insert().values(
             component_id=component_id, aircraft_id=aircraft_id, component_type="HYD_PUMP",
-            opened_at="2026-09-30T00:00:00+00:00", window_key="W1", risk_score=0.99, threshold=0.94,
+            opened_at="2026-09-30T00:00:00+00:00", window_key=window_key, risk_score=0.99, threshold=0.94,
             status="acknowledged",
         ))
         conn.commit()
@@ -253,4 +253,43 @@ def test_create_work_order_does_not_link_an_alert_for_another_component(engine, 
         _ctx(deps), aircraft_id=first["aircraft_id"], component_id=first["component_id"],
         task_ref="AMM-29-11-00-HYD-PUMP", priority="routine", justification="risk elevated",
     )
+    assert result["alert_id"] is None
+
+
+def _hyd_row(loaded_store):
+    return loaded_store.test_latest_df[loaded_store.test_latest_df["component_type"] == "HYD_PUMP"].iloc[0]
+
+
+def _raise_wo(ctx, row):
+    return copilot_tools.create_work_order(
+        ctx, aircraft_id=row["aircraft_id"], component_id=row["component_id"],
+        task_ref="AMM-29-11-00-HYD-PUMP", priority="urgent", justification="risk elevated",
+    )
+
+
+def test_create_work_order_infers_the_components_single_open_alert(engine, deps, loaded_store):
+    row = _hyd_row(loaded_store)
+    alert_id = _seed_alert(engine, row["component_id"], row["aircraft_id"])
+    assert deps.alert_id is None
+    result = _raise_wo(_ctx(deps), row)
+    assert result["alert_id"] == alert_id
+    assert result["alert_link"] == "inferred"
+
+
+def test_create_work_order_prefers_the_alert_named_in_the_prompt(engine, deps, loaded_store):
+    row = _hyd_row(loaded_store)
+    _seed_alert(engine, row["component_id"], row["aircraft_id"])
+    named = _seed_alert(engine, row["component_id"], row["aircraft_id"], window_key="W2")
+    ctx = _ctx(deps)
+    ctx.prompt = f"Raise a work order for open alert #{named}."
+    result = _raise_wo(ctx, row)
+    assert result["alert_id"] == named
+    assert result["alert_link"] == "prompt"
+
+
+def test_create_work_order_does_not_guess_between_several_open_alerts(engine, deps, loaded_store):
+    row = _hyd_row(loaded_store)
+    _seed_alert(engine, row["component_id"], row["aircraft_id"])
+    _seed_alert(engine, row["component_id"], row["aircraft_id"], window_key="W2")
+    result = _raise_wo(_ctx(deps), row)
     assert result["alert_id"] is None

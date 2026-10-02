@@ -15,6 +15,31 @@ guide are in the [root README](../README.md).
 
 ![Control desk overview](docs/images/overview-1440.png)
 
+## Video walkthrough
+
+[![MRO Predictive Maintenance: product walkthrough (click to play)](docs/videos/mro-walkthrough-poster.png)](docs/videos/mro-walkthrough.mp4)
+
+A 4:12 silent, captioned walkthrough recorded on the running app (real API, real model, real LLM copilot runs; long LLM waits are sped up, never faked). File: [`docs/videos/mro-walkthrough.mp4`](docs/videos/mro-walkthrough.mp4) (1440x900, H.264). GitHub does not inline-play MP4 files stored in a repo: click the poster to open the file view, then play it there or use **Download raw file**.
+
+![Teaser: the copilot proposes a work order and a human approves it](docs/videos/mro-walkthrough-teaser.gif)
+
+| Time | # | Chapter |
+|---|---|---|
+| 0:11 | 1 | The control desk |
+| 0:30 | 2 | Acknowledge with undo |
+| 0:39 | 3 | The whole fleet, ranked |
+| 0:58 | 4 | Bulk triage and export |
+| 1:12 | 5 | One component, explained |
+| 1:33 | 6 | Alerts inbox and sheet |
+| 1:47 | 7 | Ask the copilot |
+| 2:01 | 8 | Approve, and a work order exists |
+| 2:10 | 9 | Deny and search |
+| 2:29 | 10 | Close the loop |
+| 2:59 | 11 | Is the model any good? |
+| 3:14 | 12 | Why, and what if |
+| 3:32 | 13 | Drift and retrain |
+| 3:43 | 14 | Roles, knowledge, navigation |
+
 ## Setup
 
 Prerequisites: Python 3.10 or newer (developed and tested on 3.11) and, for
