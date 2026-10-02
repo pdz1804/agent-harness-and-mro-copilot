@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { api, errorText } from '../../lib/api'
 import type { Guardrail, GuardrailRuleCheck, GuardrailTestResult } from '../../lib/api-types'
-import { checkStatus, kindLabel, splitHighlight, summarizeVerdict } from '../../lib/guardrail-sandbox'
-import type { CheckStatus, VerdictTone } from '../../lib/guardrail-sandbox'
+import { buildExamples, checkStatus, kindLabel, splitHighlight, summarizeVerdict } from '../../lib/guardrail-sandbox'
+import type { CheckStatus, SandboxExample, VerdictTone } from '../../lib/guardrail-sandbox'
 import { Button, Card, CardHeader, Chip, Field, Select, Textarea, type ChipTone } from '../ui'
 
 const MAX_TEXT = 4000
@@ -23,32 +23,6 @@ const VERDICT: Record<VerdictTone, { cls: string; icon: typeof CheckCircle }> = 
   clear: { cls: 'bg-emerald-50 text-emerald-900 ring-emerald-200', icon: CheckCircle },
 }
 
-interface Example {
-  key: string
-  label: string
-  text?: string
-  severity?: string
-  status?: string
-}
-
-/** Example chips come only from the rules actually configured. */
-function buildExamples(guardrails: Guardrail[]): Example[] {
-  const examples: Example[] = []
-  const seen = new Set<string>()
-  for (const g of guardrails) {
-    if (!g.enabled || g.kind !== 'objective_pattern_block') continue
-    const patterns = Array.isArray(g.config.patterns) ? (g.config.patterns as unknown[]) : []
-    const first = patterns.find((p): p is string => typeof p === 'string' && p.trim() !== '')
-    if (first && !seen.has(first.toLowerCase()) && examples.length < 2) {
-      seen.add(first.toLowerCase())
-      examples.push({ key: `p-${g.id}`, label: first, text: first })
-    }
-  }
-  if (guardrails.some((g) => g.enabled && g.kind === 'severity_upgrade_block')) {
-    examples.push({ key: 'sev', label: 'critical severity, service not down', severity: 'critical', status: 'operational' })
-  }
-  return examples
-}
 
 function CheckRow({ check, testedText }: { check: GuardrailRuleCheck; testedText: string }) {
   const status = checkStatus(check)
@@ -121,7 +95,7 @@ export function TestSandbox({ guardrails }: { guardrails: Guardrail[] | null }) 
     }
   }
 
-  const applyExample = (ex: Example) => {
+  const applyExample = (ex: SandboxExample) => {
     if (ex.text !== undefined) setText(ex.text)
     if (ex.severity) setSeverity(ex.severity)
     if (ex.status) setStatus(ex.status)
@@ -191,7 +165,7 @@ export function TestSandbox({ guardrails }: { guardrails: Guardrail[] | null }) 
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="text-xs text-zinc-600">Try:</span>
               {examples.map((ex) => (
-                <Button key={ex.key} size="sm" className="max-w-64" onClick={() => applyExample(ex)} title={ex.text ? 'Fill the text box with this banned pattern' : 'Fill the severity fields'}>
+                <Button key={ex.key} size="sm" className="max-w-64" onClick={() => applyExample(ex)} title={ex.severity ? 'Fill an objective and the severity fields' : 'Fill the text box with this banned pattern'}>
                   <span className="truncate">{ex.label}</span>
                 </Button>
               ))}

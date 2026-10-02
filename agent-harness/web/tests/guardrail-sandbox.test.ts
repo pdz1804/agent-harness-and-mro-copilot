@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { GuardrailRuleCheck, GuardrailTrigger } from '../src/lib/api-types'
-import { checkStatus, describeTrigger, kindLabel, splitHighlight, summarizeVerdict } from '../src/lib/guardrail-sandbox'
+import type { Guardrail, GuardrailRuleCheck, GuardrailTrigger } from '../src/lib/api-types'
+import { buildExamples, checkStatus, describeTrigger, kindLabel, splitHighlight, summarizeVerdict } from '../src/lib/guardrail-sandbox'
 
 const check = (over: Partial<GuardrailRuleCheck>): GuardrailRuleCheck => ({
   guardrail_id: 'g1',
@@ -89,5 +89,33 @@ describe('describeTrigger', () => {
       'Downgraded severity critical to high',
     )
     expect(describeTrigger(t)).toBe('Downgraded severity ? to ?')
+  })
+})
+
+describe('buildExamples', () => {
+  const rule = (over: Partial<Guardrail>): Guardrail => ({
+    id: 'g',
+    name: 'r',
+    kind: 'objective_pattern_block',
+    config: {},
+    enabled: true,
+    created_at: '2026-10-01T00:00:00Z',
+    ...over,
+  })
+
+  it('makes the severity preset runnable on its own: it fills an objective too', () => {
+    const [ex] = buildExamples([rule({ kind: 'severity_upgrade_block' })])
+    expect(ex.severity).toBe('critical')
+    expect(ex.status).toBe('operational')
+    expect(ex.text?.trim()).toBeTruthy()
+  })
+
+  it('offers banned patterns from enabled rules only, deduplicated', () => {
+    const examples = buildExamples([
+      rule({ id: 'a', config: { patterns: ['drop table'] } }),
+      rule({ id: 'b', config: { patterns: ['DROP TABLE'] } }),
+      rule({ id: 'c', enabled: false, config: { patterns: ['rm -rf'] } }),
+    ])
+    expect(examples.map((e) => e.text)).toEqual(['drop table'])
   })
 })

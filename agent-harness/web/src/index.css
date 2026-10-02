@@ -266,6 +266,13 @@ select {
   outline-offset: 2px;
 }
 
+/* The command palette's search field is always focused while the palette is
+ * open; the palette panel is the focus indicator, so a ring inside it only
+ * draws a clipped box. */
+input[data-palette-input]:focus-visible {
+  outline: none;
+}
+
 @layer components {
   /* Page header: title + one-line description left, primary action right. */
   .ui-page-header {

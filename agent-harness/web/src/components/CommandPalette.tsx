@@ -109,6 +109,7 @@ export function CommandPalette() {
           <input
             ref={inputRef}
             name="command-palette-query"
+            data-palette-input
             autoComplete="off"
             spellCheck={false}
             role="combobox"

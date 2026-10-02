@@ -1,4 +1,4 @@
-import type { GuardrailKind, GuardrailRuleCheck, GuardrailTestResult, GuardrailTrigger } from './api-types'
+import type { Guardrail, GuardrailKind, GuardrailRuleCheck, GuardrailTestResult, GuardrailTrigger } from './api-types'
 
 export interface HighlightParts {
   before: string
@@ -62,4 +62,38 @@ export function describeTrigger(trigger: GuardrailTrigger): string {
   return `Downgraded severity ${String(trigger.data.proposed_severity ?? '?')} to ${String(
     trigger.data.downgraded_to ?? '?',
   )}`
+}
+
+export interface SandboxExample {
+  key: string
+  label: string
+  text?: string
+  severity?: string
+  status?: string
+}
+
+/** Example chips come only from the rules actually configured. */
+export function buildExamples(guardrails: Guardrail[]): SandboxExample[] {
+  const examples: SandboxExample[] = []
+  const seen = new Set<string>()
+  for (const g of guardrails) {
+    if (!g.enabled || g.kind !== 'objective_pattern_block') continue
+    const patterns = Array.isArray(g.config.patterns) ? (g.config.patterns as unknown[]) : []
+    const first = patterns.find((p): p is string => typeof p === 'string' && p.trim() !== '')
+    if (first && !seen.has(first.toLowerCase()) && examples.length < 2) {
+      seen.add(first.toLowerCase())
+      examples.push({ key: `p-${g.id}`, label: first, text: first })
+    }
+  }
+  if (guardrails.some((g) => g.enabled && g.kind === 'severity_upgrade_block')) {
+    examples.push({
+      key: 'sev',
+      label: 'critical severity, service not down',
+      // An objective too, so one click makes the sandbox runnable (Test needs text).
+      text: 'auth-service looks slow, open a critical incident for it',
+      severity: 'critical',
+      status: 'operational',
+    })
+  }
+  return examples
 }

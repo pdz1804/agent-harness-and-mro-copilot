@@ -8,7 +8,8 @@ export const CHART_PALETTE = ['#5b54e8', '#0f9f8f', '#e0901a', '#e5484d', '#a35e
 const STATUS_COLORS: [RegExp, string][] = [
   [/^(operational|ok|healthy|completed|success|succeeded|resolved|up|pass|passed|granted|approved)$/, '#12a150'],
   [/^(degraded|warning|warn|pending|pending_approval|acknowledged|medium|retry|running|in_progress)$/, '#e0901a'],
-  [/^(down|failed|failure|error|critical|high|open|denied|blocked|guardrail_blocked|timeout|fail)$/, '#e5484d'],
+  [/^(down|failed|failure|error|critical|open|denied|blocked|guardrail_blocked|timeout|fail)$/, '#e5484d'],
+  [/^(high)$/, '#f0642a'],
   [/^(low|idle|cancelled|unknown|none)$/, '#8b8fa3'],
 ]
 

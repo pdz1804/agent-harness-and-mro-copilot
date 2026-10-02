@@ -1,4 +1,4 @@
-import { CheckCircle, PlayCircle, Warning } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, CheckCircle, PlayCircle, Warning } from '@phosphor-icons/react'
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { IncidentStatusRow, IncidentTimeline, OriginRun, RelatedIncidents, ResolveNoteField } from '../components/incidents/IncidentParts'
@@ -29,6 +29,7 @@ function IncidentDetailView({ incidentId }: { incidentId: string }) {
   const [notFound, setNotFound] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const [reopening, setReopening] = useState(false)
   const [touched, setTouched] = useState(false)
   const [resolving, setResolving] = useState(false)
   const { setOverride, clearOverride, merge } = useIncidentOverrides()
@@ -47,7 +48,7 @@ function IncidentDetailView({ incidentId }: { incidentId: string }) {
     void load()
   }, [load])
 
-  const { acknowledge, resolve } = useIncidentActions({ setOverride, clearOverride, reload: load })
+  const { acknowledge, resolve, reopen } = useIncidentActions({ setOverride, clearOverride, reload: load })
   const incident = detail ? merge(detail) : null
   useDocumentTitle(incident?.title ?? null)
 
@@ -151,7 +152,23 @@ function IncidentDetailView({ incidentId }: { incidentId: string }) {
               <div className="mt-2 space-y-2 text-sm text-zinc-700">
                 <p>This incident is {statusLabel(incident.status).toLowerCase()}.</p>
                 {incident.resolution_note && <p className="rounded-[10px] bg-zinc-950/[0.04] px-2.5 py-1.5 whitespace-pre-wrap [overflow-wrap:anywhere]">{incident.resolution_note}</p>}
-                <p className="text-xs text-zinc-500">Resolved by mistake? Use Undo on the resolve toast right after resolving, or raise a new incident if the problem returns.</p>
+                <p className="text-xs text-zinc-500">Resolved by mistake, or the problem came back? Reopen it; it returns to acknowledged.</p>
+                {incident.status === 'resolved' && (
+                  <div className="flex justify-end">
+                    <Button
+                      icon={<ArrowCounterClockwise size={14} />}
+                      loading={reopening}
+                      disabled={!canMutate || reopening}
+                      title={canMutate ? undefined : reason}
+                      onClick={() => {
+                        setReopening(true)
+                        void reopen(incident).finally(() => setReopening(false))
+                      }}
+                    >
+                      Reopen
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="mt-3 space-y-3">

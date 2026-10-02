@@ -1,4 +1,4 @@
-import { ArrowSquareOut, ChartBar, Copy, Lock, Plus, Robot, ShareNetwork, Sparkle, Trash } from '@phosphor-icons/react'
+import { ArrowClockwise, ArrowSquareOut, ChartBar, Copy, Lock, Plus, Robot, ShareNetwork, Sparkle, Trash } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DiscardBar } from '../components/widgets/DiscardBar'
@@ -241,7 +241,7 @@ export function DashboardsPage() {
                   {d.auto_refresh_seconds ? ` · ${autoRefreshLabel(d.auto_refresh_seconds).toLowerCase()}` : ''}
                 </p>
               </div>
-              <div className="mt-auto flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+              <div className="mt-auto flex items-center gap-1.5 text-xs text-zinc-500">
                 <Chip icon={d.visibility === 'private' ? <Lock size={11} /> : <ShareNetwork size={11} />}>{d.visibility === 'private' ? 'Private' : 'Shared'}</Chip>
                 {d.created_by_run_id && (
                   <Chip tone="iris" icon={<Robot size={11} weight="bold" />} title="Created by the agent in a chat run">
@@ -249,13 +249,16 @@ export function DashboardsPage() {
                   </Chip>
                 )}
                 <span className="min-w-0 truncate">{d.owner_id === currentUserId ? 'You' : d.owner_id}</span>
-                <span className="ml-auto shrink-0">
+                {/* Icon plus relative time keeps the footer on one line at the 3-column card width. */}
+                <span className="ml-auto inline-flex shrink-0 items-center gap-1" title={d.last_refreshed_at ? 'Last refreshed' : 'Never refreshed'}>
+                  <ArrowClockwise size={11} aria-hidden="true" />
                   {d.last_refreshed_at ? (
                     <>
-                      Refreshed <RelativeTime value={d.last_refreshed_at} />
+                      <span className="sr-only">Refreshed </span>
+                      <RelativeTime value={d.last_refreshed_at} />
                     </>
                   ) : (
-                    'Never refreshed'
+                    'Never'
                   )}
                 </span>
               </div>

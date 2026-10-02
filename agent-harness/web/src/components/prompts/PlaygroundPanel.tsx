@@ -265,29 +265,32 @@ export function PlaygroundPanel({
         </div>
       )}
 
-      <div className="sticky bottom-2 z-10 rounded-[20px] border border-[var(--color-line)] bg-white p-2 shadow-[var(--shadow-lift)]">
-        <div className="flex items-end gap-2">
-          <Textarea
-            aria-label="Playground message"
-            name="message"
-            autoComplete="off"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void send()
-              }
-            }}
-            rows={2}
-            disabled={!canRun}
-            title={canRun ? undefined : runDisabledReason}
-            placeholder={compare ? 'One message, sent to both versions' : 'Message the agent with this prompt'}
-            className="max-h-32 min-h-0 flex-1 resize-none !border-transparent !shadow-none"
-          />
-          <Button variant="primary" iconOnly icon={<PaperPlaneTilt size={16} weight="bold" />} aria-label="Send playground message" title={canRun ? 'Send (Enter)' : runDisabledReason} loading={sending} disabled={!canRun || !message.trim()} onClick={() => void send()} />
+      {/* The sticky band is opaque down to the scroll edge, so the conversation never shows through under the composer. */}
+      <div className="sticky -bottom-6 z-10 -mb-6 bg-[var(--color-sheet)] pt-2 pb-6 md:-bottom-8 md:-mb-8 md:pb-8">
+        <div className="rounded-[20px] border border-[var(--color-line)] bg-white p-2 shadow-[var(--shadow-lift)]">
+          <div className="flex items-end gap-2">
+            <Textarea
+              aria-label="Playground message"
+              name="message"
+              autoComplete="off"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void send()
+                }
+              }}
+              rows={2}
+              disabled={!canRun}
+              title={canRun ? undefined : runDisabledReason}
+              placeholder={compare ? 'One message, sent to both versions' : 'Message the agent with this prompt'}
+              className="max-h-32 min-h-0 flex-1 resize-none !border-transparent !shadow-none"
+            />
+            <Button variant="primary" iconOnly icon={<PaperPlaneTilt size={16} weight="bold" />} aria-label="Send playground message" title={canRun ? 'Send (Enter)' : runDisabledReason} loading={sending} disabled={!canRun || !message.trim()} onClick={() => void send()} />
+          </div>
+          {!canRun && runDisabledReason && <p className="px-2 pt-1 text-xs text-zinc-500">{runDisabledReason}</p>}
         </div>
-        {!canRun && runDisabledReason && <p className="px-2 pt-1 text-xs text-zinc-500">{runDisabledReason}</p>}
       </div>
     </div>
   )

@@ -237,10 +237,14 @@ export interface Incident {
   resolved_by: string | null
   resolved_at: string | null
   resolution_note: string | null
+  /** Set when a resolved incident was reopened (back to acknowledged). Optional
+   * so older fixtures without it still type-check. */
+  reopened_by?: string | null
+  reopened_at?: string | null
 }
 
 export interface IncidentTimelineEntry {
-  event: 'opened' | 'acknowledged' | 'resolved'
+  event: 'opened' | 'acknowledged' | 'resolved' | 'reopened'
   at: string
   actor_id: string | null
   actor_name: string | null

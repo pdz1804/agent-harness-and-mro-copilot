@@ -117,5 +117,23 @@ export function useIncidentActions({ setOverride, clearOverride, reload }: Actio
     [reload, toast],
   )
 
-  return { acknowledge, resolve }
+  /** Reopen a resolved incident (resolved -> acknowledged). Resolves to
+   * `true` on success; failures toast and resolve to `false`. */
+  const reopen = useCallback(
+    async (incident: Incident): Promise<boolean> => {
+      const id = incident.id
+      try {
+        await api.reopenIncident(id)
+      } catch (err) {
+        toast({ tone: 'error', title: `Couldn't reopen ${id}`, description: errorText(err, 'Refresh and try again.') })
+        return false
+      }
+      reload()
+      toast({ title: `Reopened ${id}`, description: 'Back to acknowledged.' })
+      return true
+    },
+    [reload, toast],
+  )
+
+  return { acknowledge, resolve, reopen }
 }

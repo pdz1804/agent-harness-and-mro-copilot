@@ -1,5 +1,5 @@
 import { CaretRight, ChatsCircle, List, MagnifyingGlass, Plus, SidebarSimple, Warning, X } from '@phosphor-icons/react'
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useLocalStorageState } from '../hooks/useLocalStorageState'
 import { api } from '../lib/api'
@@ -110,6 +110,13 @@ function SidebarContent({
   const { value: openIncidents } = usePoll(() => api.listIncidents({ status: 'open' }), 15_000, pathname)
   const badges: Record<string, number> = { '/incidents': openIncidents?.length ?? 0 }
   const itemClass = navItemClass(collapsed)
+  // On short viewports the Build items sit below the sidebar fold; keep the
+  // current page's item visible after every navigation, and again once the
+  // recent-sessions list above it has loaded and pushed it down.
+  const navRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest' })
+  }, [pathname, sessions.length])
   const sessionsActive = pathname.startsWith('/sessions') || pathname.startsWith('/runs/')
 
   return (
@@ -167,7 +174,7 @@ function SidebarContent({
         </button>
       </div>
 
-      <nav className={`ui-fade-edges flex-1 overflow-x-hidden overflow-y-auto pt-1 pb-4 ${collapsed ? 'px-2' : 'px-3'}`} aria-label="Primary">
+      <nav ref={navRef} className={`ui-fade-edges flex-1 overflow-x-hidden overflow-y-auto pt-1 pb-4 ${collapsed ? 'px-2' : 'px-3'}`} aria-label="Primary">
         {collapsed ? (
           <div className="mt-2 space-y-px">
             <NavLink to="/sessions" onClick={onNavigate} title="Sessions" aria-label="Sessions" className={itemClass}>

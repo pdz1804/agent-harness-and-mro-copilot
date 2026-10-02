@@ -271,10 +271,11 @@ export function IncidentsPage() {
                     <SelectBox label={`Select ${i.id}`} checked={selected.has(i.id)} onChange={(on) => setSelected((prev) => toggleId(prev, i.id, on))} />
                   </td>
                   <td className="max-w-0 min-w-[9rem]">
-                    <p className="truncate font-medium text-zinc-900" title={i.title}>
+                    {/* Phones have no room for a one-line title plus ID and severity: wrap instead of truncating to "I…". */}
+                    <p className="line-clamp-2 font-medium text-zinc-900 sm:line-clamp-none sm:truncate" title={i.title}>
                       {i.title}
                     </p>
-                    <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+                    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-zinc-500">
                       <CopyId value={i.id} label="incident ID" />
                       <span className="sm:hidden"><SeverityBadge severity={i.severity} /></span>
                     </p>
@@ -290,7 +291,8 @@ export function IncidentsPage() {
                     <RelativeTime value={i.created_at} />
                   </td>
                   <td className="hidden text-zinc-600 lg:table-cell">
-                    <RelativeTime value={i.acknowledged_at} fallback="Not yet" />
+                    {/* A reopened incident is acknowledged without an ack stamp when it was resolved straight from open. */}
+                    <RelativeTime value={i.acknowledged_at ?? (i.status === 'acknowledged' ? i.reopened_at : null)} fallback="Not yet" />
                   </td>
                   <td className="text-right">
                     <RowActions label={`Actions for ${i.id}`} items={rowActions(i)} />
