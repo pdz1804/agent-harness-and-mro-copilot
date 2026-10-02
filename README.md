@@ -7,7 +7,7 @@ This repository contains two systems that share one idea: put a strong control l
 | ![Agent Harness: a run paused for approval](agent-harness/docs/images/chat-approval-1440.png) | ![MRO dashboard: control desk overview](mro-predictive-maintenance/docs/images/overview-1440.png) |
 | A `create_dashboard` call waits for Approve or Deny. | The control desk: alerts, approvals and activity. |
 
-**Video:** a 4:46 narrated [MRO product walkthrough](mro-predictive-maintenance/docs/videos/mro-walkthrough.mp4) covers every dashboard feature ([chapters](#video-walkthrough)).
+**Video:** a 4:57 narrated [MRO product walkthrough](mro-predictive-maintenance/docs/videos/mro-walkthrough.mp4) covers every dashboard feature ([chapters](#video-walkthrough)).
 
 **Contents**
 [What was required](#what-was-required) ·
@@ -167,26 +167,26 @@ More detail: [agent-harness/README.md](agent-harness/README.md).
 
 [![MRO Predictive Maintenance: product walkthrough (click to play)](mro-predictive-maintenance/docs/videos/mro-walkthrough-poster.png)](mro-predictive-maintenance/docs/videos/mro-walkthrough.mp4)
 
-A 4:46 narrated, captioned walkthrough recorded on the running app (real API, real model, real LLM copilot runs; long LLM waits are sped up, never faked). File: [`docs/videos/mro-walkthrough.mp4`](mro-predictive-maintenance/docs/videos/mro-walkthrough.mp4) (1440x900, H.264 + AAC voiceover). GitHub does not inline-play MP4 files stored in a repo: click the poster to open the file view, then play it there or use **Download raw file**.
+A 4:57 narrated, captioned walkthrough recorded on the running app (real API, real model, real LLM copilot runs; long LLM waits are sped up, never faked). File: [`docs/videos/mro-walkthrough.mp4`](mro-predictive-maintenance/docs/videos/mro-walkthrough.mp4) (1440x900, H.264 + AAC voiceover). GitHub does not inline-play MP4 files stored in a repo: click the poster to open the file view, then play it there or use **Download raw file**.
 
 ![Teaser: the copilot proposes a work order and a human approves it](mro-predictive-maintenance/docs/videos/mro-walkthrough-teaser.gif)
 
 | Time | # | Chapter |
 |---|---|---|
 | 0:28 | 1 | The control desk |
-| 0:47 | 2 | Acknowledge with undo |
-| 0:58 | 3 | The whole fleet, ranked |
-| 1:17 | 4 | Bulk triage and export |
-| 1:31 | 5 | One component, explained |
-| 1:52 | 6 | Alerts inbox and sheet |
-| 2:07 | 7 | Ask the copilot |
-| 2:25 | 8 | Approve, and a work order exists |
-| 2:37 | 9 | Deny and search |
-| 2:56 | 10 | Close the loop |
-| 3:26 | 11 | Is the model any good? |
-| 3:42 | 12 | Why, and what if |
-| 4:00 | 13 | Drift and retrain |
-| 4:12 | 14 | Roles, knowledge, navigation |
+| 0:48 | 2 | Acknowledge with undo |
+| 0:59 | 3 | The whole fleet, ranked |
+| 1:19 | 4 | Bulk triage and export |
+| 1:34 | 5 | One component, explained |
+| 1:56 | 6 | Alerts inbox and sheet |
+| 2:11 | 7 | Ask the copilot |
+| 2:28 | 8 | Approve, and a work order exists |
+| 2:40 | 9 | Deny and search |
+| 3:01 | 10 | Close the loop |
+| 3:30 | 11 | Is the model any good? |
+| 3:46 | 12 | Why, and what if |
+| 4:04 | 13 | Drift and retrain |
+| 4:15 | 14 | Roles, knowledge, navigation |
 
 **Architecture**
 
