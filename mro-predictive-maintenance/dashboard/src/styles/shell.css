@@ -542,7 +542,6 @@
 }
 .page-desc {
   margin-top: 6px;
-  max-width: 72ch;
   color: var(--muted);
   font-size: var(--fs-md);
   line-height: 1.5;

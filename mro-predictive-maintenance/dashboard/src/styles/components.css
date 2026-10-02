@@ -1285,7 +1285,6 @@ a.row-item:hover {
 
 /* ---- Prose (Read register) ---------------------------------------------- */
 .prose {
-  max-width: 65ch;
   color: var(--text-2);
   font-size: var(--fs-md);
   line-height: 1.6;
