@@ -27,6 +27,31 @@ layers, and eval-judge methodology) and `docs/product/PRD.md` for the
 product scope and status. The repository-level overview, requirements
 coverage and run guide are in the [root README](../README.md).
 
+## Video walkthrough
+
+[![Agent Harness: product walkthrough (click to play)](docs/videos/agent-harness-walkthrough-poster.png)](docs/videos/agent-harness-walkthrough.mp4)
+
+A 5:12 narrated, captioned walkthrough recorded on the running app (real API, real LLM runs; long LLM waits are sped up and labelled on screen, never faked). File: [`docs/videos/agent-harness-walkthrough.mp4`](docs/videos/agent-harness-walkthrough.mp4) (1440x900, H.264 + AAC voiceover). GitHub does not inline-play MP4 files stored in a repo: click the poster to open the file view, then play it there or use **Download raw file**.
+
+![Teaser: a create_dashboard call stops for approval and a human approves it](docs/videos/agent-harness-walkthrough-teaser.gif)
+
+| Time | # | Chapter |
+|---|---|---|
+| 0:15 | 1 | What needs attention |
+| 0:23 | 2 | A run that asks before it writes |
+| 0:45 | 3 | Workspace, Inspector and Trace |
+| 0:58 | 4 | Stop and time limits |
+| 1:17 | 5 | Sessions |
+| 1:33 | 6 | Incidents |
+| 1:51 | 7 | Services and automations |
+| 2:21 | 8 | Knowledge base |
+| 2:38 | 9 | Prompts |
+| 3:06 | 10 | Skills and the routing tester |
+| 3:18 | 11 | Agents |
+| 3:45 | 12 | Dashboards |
+| 4:15 | 13 | Evals |
+| 4:29 | 14 | Guardrails, settings and the viewer role |
+
 ## Quickstart (one command, after setup)
 
 ```powershell

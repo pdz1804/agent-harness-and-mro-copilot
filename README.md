@@ -7,7 +7,7 @@ This repository contains two systems that share one idea: put a strong control l
 | ![Agent Harness: a run paused for approval](agent-harness/docs/images/chat-approval-1440.png) | ![MRO dashboard: control desk overview](mro-predictive-maintenance/docs/images/overview-1440.png) |
 | A `create_dashboard` call waits for Approve or Deny. | The control desk: alerts, approvals and activity. |
 
-**Video:** a 4:57 narrated [MRO product walkthrough](mro-predictive-maintenance/docs/videos/mro-walkthrough.mp4) covers every dashboard feature ([chapters](#video-walkthrough)).
+**Videos:** two narrated, captioned product walkthroughs recorded on the running apps: [Agent Harness (5:12)](agent-harness/docs/videos/agent-harness-walkthrough.mp4) ([chapters](#video-walkthrough)) and [MRO Predictive Maintenance (4:57)](mro-predictive-maintenance/docs/videos/mro-walkthrough.mp4) ([chapters](#video-walkthrough-1)).
 
 **Contents**
 [What was required](#what-was-required) ·
@@ -110,6 +110,31 @@ These were built because they make the two systems usable as products. None of t
 ## Agent Harness
 
 **What it is.** A harness around an LLM that drives three tools (`search_knowledge_base`, `get_service_status`, `create_incident`) through a validated, limited, fully traced loop, and pauses for a human whenever a sensitive tool is proposed. It grew into a small internal platform: a FastAPI backend and a React/TypeScript console with sessions, agents, skills, prompts, guardrails, dashboards and evals.
+
+### Video walkthrough
+
+[![Agent Harness: product walkthrough (click to play)](agent-harness/docs/videos/agent-harness-walkthrough-poster.png)](agent-harness/docs/videos/agent-harness-walkthrough.mp4)
+
+A 5:12 narrated, captioned walkthrough recorded on the running app (real API, real LLM runs; long LLM waits are sped up and labelled on screen, never faked). File: [`docs/videos/agent-harness-walkthrough.mp4`](agent-harness/docs/videos/agent-harness-walkthrough.mp4) (1440x900, H.264 + AAC voiceover). GitHub does not inline-play MP4 files stored in a repo: click the poster to open the file view, then play it there or use **Download raw file**.
+
+![Teaser: a create_dashboard call stops for approval and a human approves it](agent-harness/docs/videos/agent-harness-walkthrough-teaser.gif)
+
+| Time | # | Chapter |
+|---|---|---|
+| 0:15 | 1 | What needs attention |
+| 0:23 | 2 | A run that asks before it writes |
+| 0:45 | 3 | Workspace, Inspector and Trace |
+| 0:58 | 4 | Stop and time limits |
+| 1:17 | 5 | Sessions |
+| 1:33 | 6 | Incidents |
+| 1:51 | 7 | Services and automations |
+| 2:21 | 8 | Knowledge base |
+| 2:38 | 9 | Prompts |
+| 3:06 | 10 | Skills and the routing tester |
+| 3:18 | 11 | Agents |
+| 3:45 | 12 | Dashboards |
+| 4:15 | 13 | Evals |
+| 4:29 | 14 | Guardrails, settings and the viewer role |
 
 **Architecture**
 
