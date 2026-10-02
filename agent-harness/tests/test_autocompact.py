@@ -44,11 +44,14 @@ def _build_long_run_model() -> FunctionModel:
 
         state["decisions"] += 1
         if state["decisions"] <= _TOOL_CALLS_BEFORE_FINAL:
+            # Distinct arguments each time: identical repeats are answered from
+            # the first result (and eventually force an answer) by the loop.
+            name = "auth-service" if state["decisions"] == 1 else f"auth-service-replica-{state['decisions']}"
             return decision_to_model_response(
                 {
                     "action": "tool_call",
                     "tool_name": "get_service_status",
-                    "tool_args": {"service_name": "auth-service"},
+                    "tool_args": {"service_name": name},
                 }
             )
         return decision_to_model_response(

@@ -15,6 +15,12 @@ class ToolExecutionError(ToolError):
     """Raised when a tool runs but fails (simulated external-system failure)."""
 
 
+class ToolInputError(ToolExecutionError):
+    """Raised when a tool rejects an argument it can never satisfy (an unknown
+    service name). Not transient, so the harness reports it to the model at
+    once instead of retrying the identical call."""
+
+
 class ToolPrecheckError(ToolError):
     """Raised by `Tool.precheck` to reject a call before the approval gate
     (permission denied, a dry run that cannot succeed). Never retried."""

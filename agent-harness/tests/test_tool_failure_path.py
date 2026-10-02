@@ -13,9 +13,9 @@ from agent_harness.loop import AgentLoop
 from agent_harness.tools.base import Tool
 
 
-def test_permanent_tool_failure_exhausts_retries_and_is_recorded(tools, runs_dir, fast_config):
-    # "does-not-exist" is not in the mock service registry -> always raises
-    # ToolExecutionError, deterministically, on every attempt.
+def test_unknown_service_is_reported_once_without_retries(tools, runs_dir, fast_config):
+    # "does-not-exist" is not in the service registry: a validation-type
+    # failure (same input, same answer), so it is reported once, never retried.
     script = [
         {
             "action": "tool_call",
@@ -33,13 +33,11 @@ def test_permanent_tool_failure_exhausts_retries_and_is_recorded(tools, runs_dir
     assert result.final_answer == "Could not determine status; escalate manually."
 
     error_events = [e for e in result.history if e.event_type == "tool_call_error"]
-    retry_events = [e for e in result.history if e.event_type == "tool_call_retry"]
-    exhausted_events = [e for e in result.history if e.event_type == "tool_call_retries_exhausted"]
+    types = [e.event_type for e in result.history]
 
-    # max_tool_retries=2 -> 3 total attempts -> 3 errors, 2 retries logged, 1 exhausted event.
-    assert len(error_events) == fast_config.max_tool_retries + 1
-    assert len(retry_events) == fast_config.max_tool_retries
-    assert len(exhausted_events) == 1
+    assert len(error_events) == 1
+    assert "tool_call_retry" not in types
+    assert error_events[0].data["retryable"] is False
     assert "Unknown service" in error_events[0].data["error"]
     # The error names the real services so the model can correct the call.
     assert "Registered services: " in error_events[0].data["error"]

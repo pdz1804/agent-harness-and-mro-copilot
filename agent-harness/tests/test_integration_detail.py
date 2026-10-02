@@ -79,19 +79,19 @@ def test_stats_and_recent_calls_come_from_real_traces_and_are_owner_scoped(monke
     run = _run_script(monkeypatch, script, EDITOR)
 
     body = client.get("/api/v1/integrations/get_service_status", headers=EDITOR).json()
-    # 1 success + 3 failed attempts of the unknown service (2 retries).
-    assert body["stats"]["calls"] == 4 and body["stats"]["errors"] == 3
-    assert body["stats"]["error_rate"] == pytest.approx(0.75)
+    # 1 success + 1 failed attempt: an unknown service name is not retried.
+    assert body["stats"]["calls"] == 2 and body["stats"]["errors"] == 1
+    assert body["stats"]["error_rate"] == pytest.approx(0.5)
     assert body["stats"]["avg_latency_ms"] is not None and body["stats"]["avg_latency_ms"] >= 0
     outcomes = [c["outcome"] for c in body["recent_calls"]]
-    assert outcomes.count("ok") == 1 and outcomes.count("error") == 3
+    assert outcomes.count("ok") == 1 and outcomes.count("error") == 1
     newest = body["recent_calls"][0]
     assert newest["run_id"] == run["run_id"] and newest["args"] == {"service_name": "no-such-service"}
     assert "Unknown service" in newest["error"]
 
     other = client.get("/api/v1/integrations/get_service_status", headers=EDITOR2).json()
     assert other["stats"]["calls"] == 0 and other["recent_calls"] == []
-    assert client.get("/api/v1/integrations/get_service_status", headers=ADMIN).json()["stats"]["calls"] == 4
+    assert client.get("/api/v1/integrations/get_service_status", headers=ADMIN).json()["stats"]["calls"] == 2
 
 
 # --- settings ------------------------------------------------------------------------------
@@ -131,8 +131,15 @@ def test_settings_are_admin_only_and_unknown_tool_404() -> None:
 
 
 def test_the_run_registry_applies_the_stored_limits_to_a_real_run(monkeypatch) -> None:
+    from agent_harness.exceptions import ToolExecutionError
+    from agent_harness.tools.get_service_status import GetServiceStatusTool
+
+    def _upstream_down(self, args):
+        raise ToolExecutionError("service registry unavailable")  # transient: retryable
+
+    monkeypatch.setattr(GetServiceStatusTool, "run", _upstream_down)
     client.patch("/api/v1/integrations/get_service_status", json={"max_retries": 0}, headers=ADMIN)
-    run = _run_script(monkeypatch, [_status_call("no-such-service"), {"action": "final_answer", "final_answer": "done"}], EDITOR)
+    run = _run_script(monkeypatch, [_status_call("auth-service"), {"action": "final_answer", "final_answer": "done"}], EDITOR)
     errors = [e for e in run["history"] if e["event_type"] == "tool_call_error"]
     assert len(errors) == 1  # one attempt only: the stored max_retries=0 was used, not the global 2
     assert not [e for e in run["history"] if e["event_type"] == "tool_call_retry"]

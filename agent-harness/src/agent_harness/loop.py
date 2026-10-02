@@ -78,7 +78,7 @@ from pydantic_graph import End
 from agent_harness import db, observability, token_utils
 from agent_harness.approval import ApprovalCallback, cli_prompt_approval
 from agent_harness.config import HarnessConfig
-from agent_harness.exceptions import ApprovalTimeout, ToolPrecheckError
+from agent_harness.exceptions import ApprovalTimeout, ToolInputError, ToolPrecheckError
 from agent_harness.guardrails import match_objective_patterns, severity_verdict
 from agent_harness.schemas import AgentEvent, RunResult, RunStatus, new_run_id
 from agent_harness.tools.base import Tool
@@ -132,6 +132,10 @@ def check_input_guardrail(objective: str) -> Optional[dict[str, Any]]:
                 "matched_pattern": pattern,
             }
     return None
+
+
+# Per-run call caps for memory lookups; past the cap the run must answer.
+_MEMORY_LOOKUP_CAPS = {"recall": 3}
 
 
 class AgentLoop:
@@ -229,7 +233,7 @@ class AgentLoop:
 
     # -- internals -----------------------------------------------------
 
-    def _build_agent(self) -> Agent:
+    def _build_agent(self, answer_only: bool = False) -> Agent:
         # Additive-only construction point (phase 12b): `self.tools` may
         # already be a caller-filtered subset of the full default registry
         # (see `run_registry.py::start_run` filtering on `integrations`), and
@@ -239,6 +243,12 @@ class AgentLoop:
         # `pydantic_ai.Agent` below — a disabled tool never enters
         # `pydantic_tools` at all, so it is genuinely unavailable to the LLM,
         # not merely hidden in the UI. No other control flow here changed.
+        if answer_only:
+            return Agent(
+                system_prompt=self.system_prompt
+                + "\n\nYou already repeated an identical tool call. Do not call tools; give your final answer "
+                "now from the tool results above, and say plainly what you could not find."
+            )
         pydantic_tools = [self._build_pydantic_tool(tool) for tool in self.tools.values()]
         # Approval-gated tools must be proposed one at a time: with parallel
         # tool calls a model can emit the same gated call twice in one
@@ -323,7 +333,33 @@ class AgentLoop:
             raise ToolFailed(str(exc)) from exc
 
         if not tool.requires_approval:
-            return self._run_tool(ctx, tool, validated_args)
+            key = (tool.name, json.dumps(validated_args.model_dump(mode="json"), sort_keys=True, default=str))
+            prior = self._repeat_calls.get(key)
+            if prior is not None:
+                # The same read with the same arguments returns the same data;
+                # a model that keeps asking is looping. Answer from the first
+                # result, and after a second repeat force a final answer.
+                prior["count"] += 1
+                if prior["count"] >= 2:
+                    self._force_answer = True
+                raise ToolFailed(
+                    f"'{tool.name}' was already called with these exact arguments in this run; "
+                    f"do not call it again. Earlier result: {json.dumps(prior['result'], default=str)[:2000]}. "
+                    "Give your final answer now using what you already have."
+                )
+            used = self._calls_per_tool.get(tool.name, 0)
+            if tool.name in _MEMORY_LOOKUP_CAPS and used >= _MEMORY_LOOKUP_CAPS[tool.name]:
+                # Rephrasing a memory lookup again and again (seen with agents
+                # that have no other tools) never surfaces new facts.
+                self._force_answer = True
+                raise ToolFailed(
+                    f"'{tool.name}' was already called {used} times in this run; memory does not hold this. "
+                    "Give your final answer now and say plainly what you could not find."
+                )
+            self._calls_per_tool[tool.name] = used + 1
+            result = self._run_tool(ctx, tool, validated_args)
+            self._repeat_calls[key] = {"result": result, "count": 0}
+            return result
 
         # Approval-gated: one call at a time per run (a single pending-approval
         # slot exists per run), and an identical call already decided within
@@ -530,6 +566,7 @@ class AgentLoop:
                 )
             except Exception as exc:  # noqa: BLE001 - ToolExecutionError or unexpected bug
                 latency_ms = (time.monotonic() - t0) * 1000
+                non_retryable = isinstance(exc, ToolInputError)
                 trace.log(
                     AgentEvent(
                         run_id=run_id,
@@ -541,9 +578,14 @@ class AgentLoop:
                             "args": args_dict,
                             "attempt": attempt,
                             "error": str(exc),
+                            **({"retryable": False} if non_retryable else {}),
                         },
                     )
                 )
+                if non_retryable:
+                    # Same input, same answer: retrying is pointless. Hand the
+                    # message (which names the valid inputs) to the model now.
+                    raise ToolFailed(str(exc)) from exc
             else:
                 latency_ms = (time.monotonic() - t0) * 1000
                 trace.log(
@@ -662,6 +704,7 @@ class AgentLoop:
         llm_attempt = 0
         message_history: list[Any] = []
         agent = self._build_agent()
+        answer_only = False
         # `_ctx` is the harness-internal handle the tool wrapper functions
         # (`_call_tool` and friends) read `run_id`/`step`/`trace` from —
         # Pydantic AI calls those functions with only the model-chosen
@@ -670,6 +713,9 @@ class AgentLoop:
         self._ctx: dict[str, Any] = {"run_id": run_id, "step": 0, "trace": trace}
         self._approval_lock = asyncio.Lock()
         self._decided_calls: dict[tuple[int, str, str], Any] = {}
+        self._repeat_calls: dict[tuple[str, str], dict[str, Any]] = {}
+        self._force_answer = False
+        self._calls_per_tool: dict[str, int] = {}
         self._approval_wait_seconds = 0.0
         self._approval_timed_out = False
 
@@ -713,6 +759,7 @@ class AgentLoop:
                     model=self.model,
                 ) as run:
                     done = False
+                    restart = False
                     async for node in run:
                         if self._is_cancelled():
                             _log_cancelled()
@@ -737,6 +784,15 @@ class AgentLoop:
                             break
 
                         if Agent.is_model_request_node(node):
+                            if self._force_answer and not answer_only:
+                                # The model looped on an identical read. Rerun
+                                # this request on a tool-less agent so it must
+                                # answer from the results it already has.
+                                message_history = [*run.all_messages(), node.request]
+                                agent = self._build_agent(answer_only=True)
+                                answer_only = True
+                                restart = True
+                                break
                             await self._stream_model_request(node, run, run_id, step_index, trace)
                             continue
 
@@ -776,6 +832,8 @@ class AgentLoop:
 
                     if done:
                         break
+                if restart:
+                    continue
             except Exception as exc:  # noqa: BLE001 - any unrecoverable node/provider failure is "malformed"
                 llm_attempt += 1
                 trace.log(
